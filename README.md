@@ -51,6 +51,13 @@ Account/DRM files, executables, DLLs, Steam manifests, `game.dat`, `gensec*.big`
 
 For another BIG-based Zero Hour mod, see [adding a content profile](docs/HOWTO/IOS-MOD-PROFILES.md). New profiles do not require changing the launcher UI, save-transfer code or engine-selection switch.
 
+## Contributors and AI development disclosure
+
+- **[PickledCakes](https://github.com/PickledCakes)** — fork maintainer, project direction, development, testing and integration.
+- **OpenAI Codex** — AI coding assistant used to develop and refine this fork's iOS launcher, build workflow and compatibility changes.
+
+**AI-assisted development disclaimer:** This fork was built with the assistance of OpenAI Codex. Codex was used to generate and modify code under the maintainer's direction. The maintainer is responsible for reviewing, testing and maintaining the resulting changes. This disclosure applies to the work on this fork, not to the original upstream projects or third-party components.
+
 ## Status and credits
 
 This is an experimental device-tested port, not an official EA release or a promise that every mission/mod/device works. The current development version was exercised on an iPad mini (A17 Pro), including original Generals/Zero Hour campaigns, PC snapshot loads, and initial ShockWave + SPE campaign tests. A complete clean-machine engine build of this release workflow is still a separate validation target; the original engine build and the new staging/launcher packaging are tested independently. See [validation details](docs/HOWTO/IOS-COLLECTION-BUILD.md#validation).
