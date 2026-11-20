@@ -4,13 +4,9 @@ permissions:
   contents: read
   pull-requests: write
 
+# Desktop/replay jobs require upstream-specific assets and infrastructure.
+# Keep them available manually; the source-only iOS checks run on every push/PR.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
