@@ -216,6 +216,8 @@ Bool FFmpegFile::decodePacket()
 		return false;
 	}
 
+	// GeneralsX @bugfix Codex 30/10/2026 Failed reads do not supply a valid packet.
+	if (result < 0) return false;
 	const int stream_idx = m_packet->stream_index;
 	DEBUG_ASSERTCRASH(m_streams.size() > stream_idx, ("stream index out of bounds"));
 
@@ -350,7 +352,12 @@ Int FFmpegFile::getNumFrames() const
 	if (m_fmtCtx == nullptr || stream == nullptr || m_fmtCtx->streams[stream->stream_idx] == nullptr)
 		return 0;
 
-	return (m_fmtCtx->duration / (double)AV_TIME_BASE) * av_q2d(m_fmtCtx->streams[stream->stream_idx]->avg_frame_rate);
+	// GeneralsX @bugfix Codex 30/10/2026 Bink supplies an exact frame count; do not skip briefings on missing duration/rate estimates.
+	const AVStream* video = m_fmtCtx->streams[stream->stream_idx];
+	if (video->nb_frames > 0) return static_cast<Int>(video->nb_frames);
+	const AVRational rate = av_guess_frame_rate(m_fmtCtx, const_cast<AVStream*>(video), nullptr);
+	if (m_fmtCtx->duration <= 0 || rate.num <= 0 || rate.den <= 0) return 0;
+	return (m_fmtCtx->duration / (double)AV_TIME_BASE) * av_q2d(rate);
 }
 
 Int FFmpegFile::getCurrentFrame() const
@@ -375,5 +382,9 @@ UnsignedInt FFmpegFile::getFrameTime() const
 	const FFmpegStream *stream = findMatch(AVMEDIA_TYPE_VIDEO);
 	if (stream == nullptr)
 		return 0u;
-	return 1000u / av_q2d(m_fmtCtx->streams[stream->stream_idx]->avg_frame_rate);
+	// GeneralsX @bugfix Codex 30/10/2026 Frame-count fallback must use the same validated rate for pacing.
+	const AVRational rate = av_guess_frame_rate(m_fmtCtx, m_fmtCtx->streams[stream->stream_idx], nullptr);
+	if (rate.num <= 0 || rate.den <= 0) return 33u;
+	const double milliseconds = 1000.0 / av_q2d(rate);
+	return milliseconds >= 1.0 ? static_cast<UnsignedInt>(milliseconds) : 1u;
 }

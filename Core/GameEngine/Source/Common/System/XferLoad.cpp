@@ -33,6 +33,8 @@
 #include "Common/GameState.h"
 #include "Common/Snapshot.h"
 #include "Common/XferLoad.h"
+#include "Common/SaveGameWire.h"
+#include <cstring>
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -88,6 +90,21 @@ void XferLoad::open( AsciiString identifier )
 		throw XFER_FILE_NOT_FOUND;
 
 	}
+    // GeneralsX @bugfix Codex 20/11/2026 Determine the entire save's text width from its bounded metadata block.
+    m_unicodeCharacterBytes = sizeof(WideChar);
+    unsigned char header[20];
+    if (fread(header,1,sizeof(header),m_fileFP)==sizeof(header) && header[0]==15 &&
+        memcmp(header+1,"CHUNK_GameState",15)==0) {
+        uint32_t size=gxsave::little32(header+16);
+        if(size>0 && size<=4096) {
+            std::vector<uint8_t> payload(size);
+            if(fread(payload.data(),1,size,m_fileFP)==size) {
+                int width=gxsave::detectHeader(payload.data(),payload.size());
+                if(width)m_unicodeCharacterBytes=width;
+            }
+        }
+    }
+    rewind(m_fileFP);
 
 }
 
@@ -183,7 +200,9 @@ void XferLoad::xferSnapshot( Snapshot *snapshot )
 	}
 
 	// run the xfer function of the snapshot
-	snapshot->xfer( this );
+    // GeneralsX @bugfix Codex 20/11/2026 Report the exact failed read offset without changing exception behavior.
+    try { snapshot->xfer(this); }
+    catch (...) { fprintf(stderr,"[SAVELOAD] Snapshot failure at offset %ld in %s\n",ftell(m_fileFP),m_identifier.str()); throw; }
 
 	// add this snapshot to the game state for later post processing if not restricted
 	if( BitIsSet( getOptions(), XO_NO_POST_PROCESSING ) == FALSE )
@@ -219,22 +238,16 @@ void XferLoad::xferAsciiString( AsciiString *asciiStringData )
 // ------------------------------------------------------------------------------------------------
 void XferLoad::xferUnicodeString( UnicodeString *unicodeStringData )
 {
-
-	// read bytes of string length to follow
-	UnsignedByte len;
-	xferUnsignedByte( &len );
-
-	// read all the string data
-	const Int MAX_XFER_LOAD_STRING_BUFFER = 1024;
-	static WideChar buffer[ MAX_XFER_LOAD_STRING_BUFFER ];
-
-	if( len > 0 )
-		xferUser( buffer, sizeof( WideChar ) * len );
-	buffer[ len ] = 0;  // terminate
-
-	// save into unicode string
-	unicodeStringData->set( buffer );
-
+    // GeneralsX @bugfix Codex 20/11/2026 Decode either original UTF-16 or legacy native UTF-32 saves.
+    UnsignedByte length; xferUnsignedByte(&length);
+    std::vector<uint32_t> units;
+    for(unsigned i=0;i<length;++i) {
+        uint32_t cp=0;
+        for(int byte=0;byte<m_unicodeCharacterBytes;++byte) {UnsignedByte value;xferUnsignedByte(&value);cp|=uint32_t(value)<<(8*byte);}
+        units.push_back(cp);
+    }
+    std::wstring text=gxsave::fromUnits(units.data(),units.size(),m_unicodeCharacterBytes);
+    unicodeStringData->set(text.c_str());
 }
 
 //-------------------------------------------------------------------------------------------------

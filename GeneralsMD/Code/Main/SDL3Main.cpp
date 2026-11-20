@@ -245,7 +245,12 @@ GameEngine *CreateGameEngine(void)
  * @param argv Command line arguments
  * @return Exit code (0 = success)
  */
+// GeneralsX @feature Codex 19/11/2026 The collection owns SDL's app lifecycle; expose one engine entry.
+#ifdef GX_COMBINED_ENGINE
+extern "C" __attribute__((visibility("default"))) int GXEngineMain(int argc, char* argv[])
+#else
 int main(int argc, char* argv[])
+#endif
 {
 	int exitcode = 1;
 
@@ -274,10 +279,13 @@ int main(int argc, char* argv[])
 			// Documents, not Library/Caches: Caches is purgeable (a device restart or
 			// storage pressure can empty it), and Documents is user-reachable via the
 			// Files app since the bundle enables UIFileSharingEnabled.
-			snprintf(diagPath, sizeof(diagPath), "%s/Documents/generals-stderr.log", diagHome);
+			// GeneralsX @feature Codex 19/11/2026 Keep collection engine logs separate.
+            const char *logName = getenv("GX_ENGINE_LOG_NAME");
+            if (!logName) logName = "generals";
+            snprintf(diagPath, sizeof(diagPath), "%s/Documents/%s-stderr.log", diagHome, logName);
 			// Keep the previous session's log: a session that ends in a memory kill
 			// leaves no OS crash report, so the prior log is often the only evidence.
-			snprintf(prevPath, sizeof(prevPath), "%s/Documents/generals-stderr-prev.log", diagHome);
+			snprintf(prevPath, sizeof(prevPath), "%s/Documents/%s-stderr-prev.log", diagHome, logName);
 			rename(diagPath, prevPath);
 			// Filtered + capped sink instead of a raw freopen: per-frame debug spam
 			// (upstream [GX-ISSUE144] font traces, [INI] loader traces, residual DXVK
@@ -381,8 +389,10 @@ int main(int argc, char* argv[])
 				// Seed default settings on first run (full detail instead of the
 				// 2003 auto-detect, which drops unknown GPUs to Low).
 				char userDataDir[1024], optionsPath[1024];
-				snprintf(userDataDir, sizeof(userDataDir),
-				         "%s/Library/Application Support/GeneralsX/GeneralsZH", home);
+                // GeneralsX @feature Codex 20/11/2026 Seed defaults into the selected collection profile only.
+                const char *profileDirectory=getenv("GX_USER_DATA_DIRECTORY");
+                if (profileDirectory && *profileDirectory) snprintf(userDataDir,sizeof(userDataDir),"%s",profileDirectory);
+                else snprintf(userDataDir,sizeof(userDataDir),"%s/Library/Application Support/GeneralsX/GeneralsZH",home);
 				snprintf(optionsPath, sizeof(optionsPath), "%s/Options.ini", userDataDir);
 				if (access(optionsPath, F_OK) != 0 && access("DefaultOptions.ini", R_OK) == 0) {
 					std::error_code fsError;
@@ -393,6 +403,7 @@ int main(int argc, char* argv[])
 					}
 				}
 
+#ifndef GX_COMBINED_ENGINE
 				// One-time tidy-up: remove asset copies from Documents now that
 				// the bundle carries them. Guarded by a sentinel so it truly runs
 				// once — Documents is exposed via the Files app, and anything the
@@ -423,6 +434,7 @@ int main(int argc, char* argv[])
 						if (s) fclose(s);
 					}
 				}
+#endif // !GX_COMBINED_ENGINE
 			}
 		}
 	}
@@ -471,6 +483,8 @@ int main(int argc, char* argv[])
 		// SDL3GameEngine.cpp; SDL's automatic touch->mouse synthesis would
 		// double-deliver finger 1 and fight the two-finger pan logic.
 		SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+		// GeneralsX @bugfix Codex 30/10/2026 SDL resizable UIKit windows otherwise permit portrait rotation.
+		SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 #endif
 		if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
 			fprintf(stderr, "FATAL: Failed to initialize SDL3: %s\n", SDL_GetError());
@@ -540,7 +554,13 @@ int main(int argc, char* argv[])
 			// the engine's resolution-aware font scaling (GlobalLanguage).
 			int winW = 0, winH = 0;
 			SDL_GetWindowSizeInPixels(TheSDL3Window, &winW, &winH);
-			if (!userSetRes && winW > 0 && winH > 0 && winW > winH) {
+			// GeneralsX @bugfix Codex 30/10/2026 UIKit may still report portrait bounds during launch; choose the landscape render size.
+			if (winH > winW) {
+				const int portraitWidth = winW;
+				winW = winH;
+				winH = portraitWidth;
+			}
+			if (!userSetRes && winW > 0 && winH > 0) {
 				static char xresVal[16], yresVal[16];
 				static char xresFlag[] = "-xres";
 				static char yresFlag[] = "-yres";
@@ -617,6 +637,15 @@ int main(int argc, char* argv[])
 	// pool block memory was already reused/overwritten during game shutdown.
 	// Windows never had this problem — ExitProcess() terminates without running C++ global dtors.
 	// _exit() matches that behavior. Explicit cleanup already done above (SDL_Quit, shutdownMemoryManager).
+#ifdef GX_COMBINED_ENGINE
+    // GeneralsX @feature Codex 19/11/2026 Record normal exit before bypassing legacy global destructors.
+    if (const char *marker = getenv("GX_SESSION_ENDED_PATH")) {
+        if (FILE *file = fopen(marker, "w")) {
+            fprintf(file, "%d\n", exitcode);
+            fclose(file);
+        }
+    }
+#endif
 	_exit(exitcode);
 }
 

@@ -127,6 +127,9 @@ void W3DShroud::init(WorldHeightMap *pMap, Real worldCellSizeX, Real worldCellSi
 		//shroud cells are larger than terrain cells).
 		dstTextureWidth=m_numMaxVisibleCellsX=REAL_TO_INT_FLOOR((Real)(pMap->getDrawWidth()-1)*MAP_XY_FACTOR/m_cellWidth)+1;
 		dstTextureHeight=m_numMaxVisibleCellsY=REAL_TO_INT_FLOOR((Real)(pMap->getDrawHeight()-1)*MAP_XY_FACTOR/m_cellHeight)+1;
+		// GeneralsX @bugfix Codex 31/10/2026 Cover the complete map like the shared terrain renderer; a camera-sized fog texture clips cinematic views.
+		dstTextureWidth = m_numCellsX;
+		dstTextureHeight = m_numCellsY;
 		dstTextureWidth += 2;	//enlarge by 2 pixels so we can have a border color all the way around.
 		unsigned int depth = 1;
 		dstTextureHeight += 2;	//enlarge by 2 pixels so we can have border color all the way around.
@@ -624,6 +627,11 @@ void W3DShroud::render(CameraClass *cam)
 		visStartY = 0;	//no shroud is applied in border area so it always starts at > 0
 	Int visEndX=visStartX+REAL_TO_INT_FLOOR((Real)(hm->getDrawWidth()-1)*MAP_XY_FACTOR/m_cellWidth)+1;	//size of rendered heightmap rectangle
 	Int visEndY=visStartY+REAL_TO_INT_FLOOR((Real)(hm->getDrawHeight()-1)*MAP_XY_FACTOR/m_cellHeight)+1;
+
+	// GeneralsX @bugfix Codex 31/10/2026 Keep fog coordinates anchored to the full map instead of a sliding camera crop.
+	visStartX = visStartY = 0;
+	visEndX = m_numCellsX;
+	visEndY = m_numCellsY;
 
 	if (visEndX > m_numCellsX)
 	{

@@ -1377,6 +1377,12 @@ UnsignedInt GlobalData::generateExeCRC()
 AsciiString GlobalData::BuildUserDataPathFromRegistry()
 {
 	AsciiString userDataDir;
+#if defined(__APPLE__)
+    // GeneralsX @feature Codex 20/11/2026 Collection content profiles own independent settings and saves.
+    if (const char *directory=getenv("GX_USER_DATA_DIRECTORY")) {
+        if (*directory) { std::filesystem::create_directories(directory); userDataDir=directory; userDataDir.concat('/'); return userDataDir; }
+    }
+#endif
 
 #ifdef _WIN32
 	// GeneralsX @refactor Bender 01/04/2026 Windows-specific path handling (Registry-based)

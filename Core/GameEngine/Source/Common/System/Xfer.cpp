@@ -87,6 +87,8 @@ void Xfer::xferVersion( XferVersion *versionData, XferVersion currentVersion )
 
 		DEBUG_CRASH(( "XferVersion - Unknown version '%d' should be no higher than '%d'",
 									*versionData, currentVersion ));
+		// GeneralsX @bugfix Codex 20/11/2026 Release diagnostics for unsupported or misaligned save versions.
+		fprintf(stderr,"[SAVELOAD] Version %u exceeds %u in %s\n",unsigned(*versionData),unsigned(currentVersion),m_identifier.str());
 		throw XFER_INVALID_VERSION;
 
 	}

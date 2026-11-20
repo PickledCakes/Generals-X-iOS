@@ -1,0 +1,7 @@
+{
+  "bundleId": "org.yourname.generalsx",
+  "teamId": "",
+  "profiles": [
+    {"id": "GeneralsZH", "source": "/absolute/path/to/Command & Conquer Generals - Zero Hour"}
+  ]
+}

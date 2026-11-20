@@ -19,3 +19,9 @@ To add a new tutorial:
 2. Use UPPERCASE_WITH_UNDERSCORES naming (e.g., `MY_NEW_TUTORIAL.md`)
 3. Add an entry to the table above
 4. Follow the existing tutorial format (title, overview, steps, troubleshooting)
+
+## iOS Collection
+
+- [Build and supply game installations](IOS-COLLECTION-BUILD.md)
+- [Add mod profiles](IOS-MOD-PROFILES.md)
+- [Third-party notices](IOS-THIRD-PARTY.md)

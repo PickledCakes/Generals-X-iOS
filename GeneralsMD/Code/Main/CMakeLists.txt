@@ -99,3 +99,7 @@ endif()
 if(MINGW AND COMMAND add_debug_strip_target)
     add_debug_strip_target(z_generals)
 endif()
+
+# GeneralsX @build Codex 19/11/2026 Keep standalone and collection engine targets independent.
+include(${CMAKE_SOURCE_DIR}/cmake/ios-launcher.cmake)
+gx_add_ios_engine(z_generals_engine z_generals ZeroHourEngine)

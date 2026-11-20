@@ -1014,6 +1014,8 @@ void GameEngine::execute()
 	while( !m_quitting )
 	{
 
+
+
 		//if (TheGlobalData->m_vTune)
 		{
 #ifdef PERF_TIMERS

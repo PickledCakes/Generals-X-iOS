@@ -267,14 +267,8 @@ endif()
 # Phase 3: Video playback with FFmpeg (configured by Core/GameEngineDevice when RTS_BUILD_OPTION_FFMPEG=ON)
 # GeneralsX @feature BenderAI 21/02/2026 Video playback framework
 if(RTS_BUILD_OPTION_FFMPEG)
-    # Add VideoDevice FFmpeg implementation (video playback)
-    target_sources(z_gameenginedevice PUBLIC
-        Include/VideoDevice/Bink/BinkVideoPlayer.h
-        Include/VideoDevice/FFmpeg/FFmpegFile.h
-        Include/VideoDevice/FFmpeg/FFmpegVideoPlayer.h
-        Source/VideoDevice/FFmpeg/FFmpegFile.cpp
-        Source/VideoDevice/FFmpeg/FFmpegVideoPlayer.cpp
-    )
+    # GeneralsX @bugfix Codex 30/10/2026 Core already supplies both FFmpeg implementations.
+    # Do not archive duplicate class definitions: the older local decoder shadows Core's EOF fixes.
     target_compile_definitions(z_gameenginedevice PUBLIC SAGE_USE_FFMPEG)
     # GeneralsX @build felipebraz 20/06/2025 PkgConfig::FFMPEG is PRIVATE in corei_gameenginedevice_private so it
     # does not propagate transitively to consumers of z_gameenginedevice (z_generals). Explicitly

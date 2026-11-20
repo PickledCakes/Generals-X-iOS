@@ -226,6 +226,10 @@ VideoStreamInterface* FFmpegVideoPlayer::createStream( File* file )
 
 VideoStreamInterface*	FFmpegVideoPlayer::open( AsciiString movieTitle )
 {
+    // GeneralsX @bugfix Codex 19/11/2026 Honor the existing -novideo setting for every movie consumer.
+    // This affects decoded video only, never scripted in-engine camera/animation sequences.
+    if (TheGlobalData && !TheGlobalData->m_videoOn) return nullptr;
+
 	VideoStreamInterface*	stream = nullptr;
 
 	const Video* pVideo = getVideo(movieTitle);
@@ -325,7 +329,8 @@ FFmpegVideoStream::FFmpegVideoStream(FFmpegFile* file)
 	// Start audio playback
 	// GeneralsX @bugfix fbraz3 23/04/2026 Ensure video stream starts with audible gain even after prior source reuse.
 	// Issue: https://github.com/fbraz3/GeneralsX/issues/38
-	audioStream->setVolume(1.0f);
+	// GeneralsX @bugfix Codex 30/10/2026 Match retail briefing gain and honor the speech slider, including zero.
+	audioStream->setVolume(TheAudio->getVolume(AudioAffect_Speech) * 0.8f);
 	audioStream->play();
 #endif
 
@@ -456,9 +461,8 @@ void FFmpegVideoStream::update()
 	// first unprocessed buffer (OpenAL 1.1 spec §4.3.9), which causes
 	// effective silence when invoked every game frame.
 	OpenALAudioStream* audioStream = (OpenALAudioStream*)TheAudio->getHandleForBink();
-	if (!audioStream->isPlaying()) {
-		audioStream->play();
-	}
+	// GeneralsX @bugfix Codex 30/10/2026 Stream maintenance owns underrun recovery and respects explicit pauses.
+	audioStream->setVolume(TheAudio->getVolume(AudioAffect_Speech) * 0.8f);
 #endif
 	//BinkWait( m_handle );
 }

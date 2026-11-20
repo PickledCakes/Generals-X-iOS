@@ -11,7 +11,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
 
 mkdir -p "${DEST}"
-if [[ -f "${DEST}/arial.ttf" && -f "${DEST}/arialbold.ttf" && -f "${DEST}/couriernew.ttf" && -f "${DEST}/timesnewroman.ttf" ]]; then
+if [[ -f "${DEST}/arial.ttf" && -f "${DEST}/arialbold.ttf" && -f "${DEST}/couriernew.ttf" && -f "${DEST}/timesnewroman.ttf" && -f "${DEST}/LICENSE.txt" ]]; then
     echo "Fonts already staged at ${DEST}"
     exit 0
 fi
@@ -31,4 +31,8 @@ cp "${SRC}/LiberationSans-Regular.ttf"   "${DEST}/arial.ttf"
 cp "${SRC}/LiberationSans-Bold.ttf"      "${DEST}/arialbold.ttf"
 cp "${SRC}/LiberationMono-Regular.ttf"   "${DEST}/couriernew.ttf"
 cp "${SRC}/LiberationSerif-Regular.ttf"  "${DEST}/timesnewroman.ttf"
+# Preserve the font redistribution notice alongside the renamed font files.
+FONT_LICENSE="$(find "${TMP}" -type f \( -iname 'LICENSE' -o -iname 'LICENSE.txt' -o -iname 'OFL.txt' \) | head -1)"
+[[ -n "${FONT_LICENSE}" ]] || { echo "ERROR: font license missing from the pinned archive"; exit 1; }
+cp "${FONT_LICENSE}" "${DEST}/LICENSE.txt"
 echo "==> Staged $(ls "${DEST}" | wc -l | tr -d ' ') fonts at ${DEST}"

@@ -704,7 +704,8 @@ void SDL3Mouse::translateButtonEvent(const SDL_MouseButtonEvent& event, MouseIO 
 			// fprintf(stderr, "[MOUSE] Left button: %s\n", event.down ? "DOWN" : "UP");
 			// GeneralsX @bugfix felipebraz 18/02/2026 Use native SDL3 clicks field for double-click
 			// SDL3 button events contain clicks count: 1=single, 2=double
-			if (event.clicks >= 2) {
+			// GeneralsX @bugfix Codex 31/10/2026 Double-click releases must remain button-up events.
+			if (event.down && event.clicks >= 2) {
 				result->leftState = MBS_DoubleClick;
 				// GeneralsX @bugfix BenderAI 18/02/2026 Temporarily disable debug logging (Phase 1.8)
 				// fprintf(stderr, "[MOUSE] Left double-click detected (clicks=%d)\n", event.clicks);
@@ -798,7 +799,8 @@ void SDL3Mouse::scaleMouseCoordinates(int rawX, int rawY, Uint32 windowID, int& 
 	int internalHeight = TheDisplay->getHeight();
 
 	int pbX, pbY, pbW, pbH;
-	if (TheDisplay->getViewportRect(pbX, pbY, pbW, pbH)) {
+	// GeneralsX @bugfix Codex 31/10/2026 Ignore transient empty iOS viewports.
+	if (TheDisplay->getViewportRect(pbX, pbY, pbW, pbH) && pbW > 0 && pbH > 0) {
 		int clampedX = rawX - pbX;
 		if (clampedX < 0) clampedX = 0;
 		if (clampedX > pbW) clampedX = pbW;

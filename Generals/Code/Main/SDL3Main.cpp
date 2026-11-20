@@ -28,9 +28,23 @@
 
 #ifndef _WIN32
 
+// GeneralsX @feature Codex 31/10/2026 Port the validated iOS startup and asset/settings paths to original Generals.
 // SYSTEM INCLUDES
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+// On iOS, SDL renames main() to SDL_main and provides its own UIApplicationMain
+// bootstrap; the app lifecycle (suspend/resume, window) is owned by SDL.
+#include <SDL3/SDL_main.h>
+#include <cerrno>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <filesystem>
+#include <string>
+#endif
 #include <cstdlib>
 #include <cctype>
 #include <cstring>
@@ -232,7 +246,12 @@ GameEngine *CreateGameEngine(void)
  * @param argv Command line arguments
  * @return Exit code (0 = success)
  */
+// GeneralsX @feature Codex 19/11/2026 The collection owns SDL's app lifecycle; expose one engine entry.
+#ifdef GX_COMBINED_ENGINE
+extern "C" __attribute__((visibility("default"))) int GXEngineMain(int argc, char* argv[])
+#else
 int main(int argc, char* argv[])
+#endif
 {
 	int exitcode = 1;
 
@@ -240,6 +259,153 @@ int main(int argc, char* argv[])
 	// Store command line arguments in globals for CommandLine.cpp parser
 	__argc = argc;
 	__argv = argv;
+
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// Diagnostic capture: an icon-launched app's stderr goes nowhere we can read,
+	// so mirror it to a file in Library/Caches (purgeable, not user-visible). This
+	// lets us pull a full engine log after an on-device session — essential for
+	// debugging mode-specific issues (e.g. Generals Challenge radar/scripts) that
+	// only the user can reproduce. Pull with: devicectl ... copy from
+	// Library/Caches/generals-stderr.log. Remove once the relevant bugs are fixed.
+	{
+		// Quiet DXVK at the source: the d3d8 layer's per-call warns (e.g. an
+		// unimplemented render state set every frame) wrote hundreds of MB per
+		// long session. The shipped dxvk.conf also sets logLevel=none; the env
+		// covers modules that read it before the config.
+		setenv("DXVK_LOG_LEVEL", "none", 0);
+		const char *diagHome = getenv("HOME");
+		if (diagHome != nullptr) {
+			char diagPath[1024];
+			char prevPath[1024];
+			// Documents, not Library/Caches: Caches is purgeable (a device restart or
+			// storage pressure can empty it), and Documents is user-reachable via the
+			// Files app since the bundle enables UIFileSharingEnabled.
+			// GeneralsX @feature Codex 19/11/2026 Keep collection engine logs separate.
+            const char *logName = getenv("GX_ENGINE_LOG_NAME");
+            if (!logName) logName = "generals";
+            snprintf(diagPath, sizeof(diagPath), "%s/Documents/%s-stderr.log", diagHome, logName);
+			// Keep the previous session's log: a session that ends in a memory kill
+			// leaves no OS crash report, so the prior log is often the only evidence.
+			snprintf(prevPath, sizeof(prevPath), "%s/Documents/%s-stderr-prev.log", diagHome, logName);
+			rename(diagPath, prevPath);
+			// Filtered + capped sink instead of a raw freopen: per-frame debug spam
+			// (upstream [GX-ISSUE144] font traces, [INI] loader traces, residual DXVK
+			// warns) is dropped, and the file stops growing at 8 MB so a marathon
+			// session cannot eat device storage. funopen() is fine here: this is
+			// Darwin-only code.
+			static int s_logFd = -1;
+			s_logFd = open(diagPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			if (s_logFd >= 0) {
+				static size_t s_logWritten = 0;
+				FILE *sink = funopen(nullptr,
+					nullptr,
+					[](void *, const char *buf, int len) -> int {
+						static const size_t kLogCap = 8u * 1024u * 1024u;
+						if (s_logFd < 0) return len;
+						if (len > 13 &&
+						    (memcmp(buf, "[GX-ISSUE144]", 13) == 0 ||
+						     memcmp(buf, "[INI] ", 6) == 0 ||
+						     memcmp(buf, "warn:  D3D8De", 13) == 0)) {
+							return len;  // drop known per-frame spam, report consumed
+						}
+						if (s_logWritten >= kLogCap) {
+							// past the cap, still record errors — the tail of a dying
+							// session is this log's whole reason to exist
+							static bool s_capMarked = false;
+							if (!s_capMarked) {
+								s_capMarked = true;
+								const char *mark = "[log capped: non-error lines dropped from here]\n";
+								write(s_logFd, mark, strlen(mark));
+							}
+							if (len > 4 && (memcmp(buf, "err:", 4) == 0 ||
+							                memcmp(buf, "ERROR", 5) == 0 ||
+							                memcmp(buf, "FATAL", 5) == 0)) {
+								write(s_logFd, buf, (size_t)len);
+							}
+							return len;
+						}
+						ssize_t w = write(s_logFd, buf, (size_t)len);
+						if (w > 0) s_logWritten += (size_t)w;
+						return len;
+					},
+					nullptr, nullptr);
+				if (sink != nullptr) {
+					*stderr = *sink;  // classic Darwin stderr swap; stderr is a FILE, not a macro here
+					setvbuf(stderr, nullptr, _IOLBF, 0);  // line-buffered so a crash still flushes recent lines
+				}
+			}
+		}
+	}
+
+	// The engine resolves all game data relative to the working directory.
+	// Preferred layout: assets ship read-only INSIDE the signed app bundle
+	// (<bundle>/GameData), the iOS-sanctioned home for app resources — the
+	// install is then fully self-contained. Dev builds packaged without
+	// assets fall back to the Documents folder (Files-app accessible).
+	// User data (saves, Options.ini) always lives in Library/Application
+	// Support via the engine's user-data path; never in the bundle.
+	{
+		const char *home = getenv("HOME");
+
+		// <bundle>/GameData, derived from the executable path (argv[0])
+		char bundleData[1024] = {0};
+		if (argc > 0 && argv[0] != nullptr) {
+			const char *slash = strrchr(argv[0], '/');
+			if (slash != nullptr) {
+				const size_t dirLen = (size_t)(slash - argv[0]);
+				if (dirLen < sizeof(bundleData) - 16) {
+					memcpy(bundleData, argv[0], dirLen);
+					snprintf(bundleData + dirLen, sizeof(bundleData) - dirLen, "/GameData");
+				}
+			}
+		}
+
+		bool usingBundleData = false;
+		if (bundleData[0] != '\0' && access(bundleData, R_OK) == 0) {
+			if (chdir(bundleData) == 0) {
+				usingBundleData = true;
+				fprintf(stderr, "INFO: iOS working directory (bundle): %s\n", bundleData);
+			}
+		}
+		if (!usingBundleData && home != nullptr) {
+			char docs[1024];
+			snprintf(docs, sizeof(docs), "%s/Documents", home);
+			if (chdir(docs) != 0) {
+				fprintf(stderr, "WARNING: chdir(%s) failed: %s\n", docs, strerror(errno));
+			} else {
+				fprintf(stderr, "INFO: iOS working directory (Documents): %s\n", docs);
+			}
+		}
+
+		if (home != nullptr) {
+			// Keep DXVK's shader cache in Library/Caches: purgeable under
+			// storage pressure, excluded from iCloud backup, invisible in the
+			// Files app. Must be set before the d3d8 dylib loads.
+			char cacheDir[1024];
+			snprintf(cacheDir, sizeof(cacheDir), "%s/Library/Caches", home);
+			mkdir(cacheDir, 0755);
+			setenv("DXVK_STATE_CACHE_PATH", cacheDir, 0);
+
+			if (usingBundleData) {
+				// Seed default settings on first run (full detail instead of the
+				// 2003 auto-detect, which drops unknown GPUs to Low).
+				char userDataDir[1024], optionsPath[1024];
+				snprintf(userDataDir, sizeof(userDataDir),
+				         "%s/Library/Application Support/GeneralsX/Generals", home);
+				snprintf(optionsPath, sizeof(optionsPath), "%s/Options.ini", userDataDir);
+				if (access(optionsPath, F_OK) != 0 && access("DefaultOptions.ini", R_OK) == 0) {
+					std::error_code fsError;
+					std::filesystem::create_directories(userDataDir, fsError);
+					std::filesystem::copy_file("DefaultOptions.ini", optionsPath, fsError);
+					if (!fsError) {
+						fprintf(stderr, "INFO: Seeded default Options.ini\n");
+					}
+				}
+
+			}
+		}
+	}
+#endif
 
 	fprintf(stderr, "=================================================\n");
 	fprintf(stderr, " Command & Conquer Generals (Linux)\n");
@@ -274,50 +440,120 @@ int main(int argc, char* argv[])
 			fprintf(stderr, "INFO: Headless mode detected, skipping SDL3 video/Vulkan window initialization\n");
 		} else {
 
-			// GeneralsX @bugfix felipebraz 16/02/2026
-			// Initialize SDL3 and Vulkan BEFORE creating GameEngine (fighter19 pattern)
-			// This prevents LLVM SIGSEGV crash during Vulkan driver enumeration
-			// Must be done here, not in SDL3GameEngine::init() which is too late
-			fprintf(stderr, "INFO: Initializing SDL3 video subsystem...\n");
-			if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
-				fprintf(stderr, "FATAL: Failed to initialize SDL3: %s\n", SDL_GetError());
-				return 1;
+		// GeneralsX @bugfix felipebraz 16/02/2026
+		// Initialize SDL3 and Vulkan BEFORE creating GameEngine (fighter19 pattern)
+		// This prevents LLVM SIGSEGV crash during Vulkan driver enumeration
+		// Must be done here, not in SDL3GameEngine::init() which is too late
+		fprintf(stderr, "INFO: Initializing SDL3 video subsystem...\n");
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+		// All mouse events are synthesized by the gesture translator in
+		// SDL3GameEngine.cpp; SDL's automatic touch->mouse synthesis would
+		// double-deliver finger 1 and fight the two-finger pan logic.
+		SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+		// GeneralsX @bugfix Codex 30/10/2026 SDL resizable UIKit windows otherwise permit portrait rotation.
+		SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
+		if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
+			fprintf(stderr, "FATAL: Failed to initialize SDL3: %s\n", SDL_GetError());
+			return 1;
+		}
+
+		// Set DXVK WSI driver before loading Vulkan
+		setenv("DXVK_WSI_DRIVER", "SDL3", 1);
+
+		// GeneralsX @bugfix BenderAI 06/03/2026 - Exclude LLVMpipe Vulkan ICD before loading Vulkan.
+		// libvulkan_lvp.so crashes during static initialization with LLVM 20.x when the Vulkan
+		// loader enumerates all ICDs. Restrict to hardware ICDs first.
+		FilterSoftwareVulkanICDs();
+		FilterPipeWireOpenAL();
+
+		// Load Vulkan library for DXVK DirectX8→Vulkan translation
+		fprintf(stderr, "INFO: Loading Vulkan library...\n");
+		if (!SDL_Vulkan_LoadLibrary(nullptr)) {
+			fprintf(stderr, "WARNING: Failed to load Vulkan: %s\n", SDL_GetError());
+			fprintf(stderr, "WARNING: Continuing without Vulkan (may use software rendering)\n");
+		}
+
+		// Create SDL3 window with Vulkan support
+		fprintf(stderr, "INFO: Creating SDL3 Vulkan window...\n");
+		Uint32 windowFlags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;  // Start hidden, show after D3D init
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+		// Request a native-resolution Metal drawable (e.g. 2868x1320 instead of the
+		// 956x440 point size). Without this the swapchain renders at point size and
+		// the display upscales 3x, visibly blurring textures and terrain.
+		windowFlags |= SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#endif
+		TheSDL3Window = SDL_CreateWindow(
+			"Command & Conquer Generals",
+			1024, 768,  // Default resolution
+			windowFlags
+		);
+
+		if (!TheSDL3Window) {
+			fprintf(stderr, "FATAL: Failed to create SDL3 window: %s\n", SDL_GetError());
+			SDL_Quit();
+			return 1;
+		}
+
+		// Store window handle globally (cast SDL_Window* to HWND for compatibility)
+		ApplicationHWnd = (HWND)TheSDL3Window;
+		fprintf(stderr, "INFO: SDL3 window created successfully\n");
+
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+		// Match the game's internal resolution to the phone screen's aspect ratio.
+		// Without this the engine runs its 4:3 default inside the 19.5:9 display:
+		// pillarboxed picture and a skewed window->game coordinate mapping. Height
+		// stays at the engine's 600px design baseline (UI layouts assume >= 600);
+		// width follows the real aspect. Injected as -xres/-yres argv entries so
+		// the normal command-line path applies them (user-passed flags still win
+		// because the parser lets later arguments override earlier ones... ours go
+		// last, so only add them if the user didn't pass explicit -xres/-yres).
+		{
+			bool userSetRes = false;
+			for (int i = 1; i < __argc; ++i) {
+				if (strcmp(__argv[i], "-xres") == 0 || strcmp(__argv[i], "-yres") == 0) {
+					userSetRes = true;
+					break;
+				}
 			}
-
-			// Set DXVK WSI driver before loading Vulkan
-			setenv("DXVK_WSI_DRIVER", "SDL3", 1);
-
-			// GeneralsX @bugfix BenderAI 06/03/2026 - Exclude LLVMpipe Vulkan ICD before loading Vulkan.
-			// libvulkan_lvp.so crashes during static initialization with LLVM 20.x when the Vulkan
-			// loader enumerates all ICDs. Restrict to hardware ICDs first.
-			FilterSoftwareVulkanICDs();
-			FilterPipeWireOpenAL();
-
-			// Load Vulkan library for DXVK DirectX8→Vulkan translation
-			fprintf(stderr, "INFO: Loading Vulkan library...\n");
-			if (!SDL_Vulkan_LoadLibrary(nullptr)) {
-				fprintf(stderr, "WARNING: Failed to load Vulkan: %s\n", SDL_GetError());
-				fprintf(stderr, "WARNING: Continuing without Vulkan (may use software rendering)\n");
+			// Use the pixel size of the high-density drawable: the game renders
+			// 1:1 into the native-resolution swapchain, and fonts/UI rescale via
+			// the engine's resolution-aware font scaling (GlobalLanguage).
+			int winW = 0, winH = 0;
+			SDL_GetWindowSizeInPixels(TheSDL3Window, &winW, &winH);
+			// GeneralsX @bugfix Codex 30/10/2026 UIKit may still report portrait bounds during launch; choose the landscape render size.
+			if (winH > winW) {
+				const int portraitWidth = winW;
+				winW = winH;
+				winH = portraitWidth;
 			}
+			if (!userSetRes && winW > 0 && winH > 0) {
+				static char xresVal[16], yresVal[16];
+				static char xresFlag[] = "-xres";
+				static char yresFlag[] = "-yres";
+				const int yres = winH;
+				int xres = winW;
+				xres &= ~1;  // keep it even
+				snprintf(xresVal, sizeof(xresVal), "%d", xres);
+				snprintf(yresVal, sizeof(yresVal), "%d", yres);
 
-			// Create SDL3 window with Vulkan support
-			fprintf(stderr, "INFO: Creating SDL3 Vulkan window...\n");
-			Uint32 windowFlags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;  // Start hidden, show after D3D init
-			TheSDL3Window = SDL_CreateWindow(
-				"Command & Conquer Generals",
-				1024, 768,  // Default resolution
-				windowFlags
-			);
-
-			if (!TheSDL3Window) {
-				fprintf(stderr, "FATAL: Failed to create SDL3 window: %s\n", SDL_GetError());
-				SDL_Quit();
-				return 1;
+				static char* newArgv[64];
+				int n = 0;
+				for (int i = 0; i < __argc && n < 59; ++i) {
+					newArgv[n++] = __argv[i];
+				}
+				newArgv[n++] = xresFlag;
+				newArgv[n++] = xresVal;
+				newArgv[n++] = yresFlag;
+				newArgv[n++] = yresVal;
+				newArgv[n] = nullptr;
+				__argv = newArgv;
+				__argc = n;
+				fprintf(stderr, "INFO: iOS internal resolution set to %sx%s (window %dx%d)\n",
+				        xresVal, yresVal, winW, winH);
 			}
-
-			// Store window handle globally (cast SDL_Window* to HWND for compatibility)
-			ApplicationHWnd = (HWND)TheSDL3Window;
-			fprintf(stderr, "INFO: SDL3 window created successfully\n");
+		}
+#endif
 		}
 
 		// Call cross-platform game entry point
@@ -368,6 +604,15 @@ int main(int argc, char* argv[])
 	// pool block memory was already reused/overwritten during game shutdown.
 	// Windows never had this problem — ExitProcess() terminates without running C++ global dtors.
 	// _exit() matches that behavior. Explicit cleanup already done above (SDL_Quit, shutdownMemoryManager).
+#ifdef GX_COMBINED_ENGINE
+    // GeneralsX @feature Codex 19/11/2026 Record normal exit before bypassing legacy global destructors.
+    if (const char *marker = getenv("GX_SESSION_ENDED_PATH")) {
+        if (FILE *file = fopen(marker, "w")) {
+            fprintf(file, "%d\n", exitcode);
+            fclose(file);
+        }
+    }
+#endif
 	_exit(exitcode);
 }
 

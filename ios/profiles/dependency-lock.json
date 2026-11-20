@@ -1,0 +1,1 @@
+{"vcpkgCommit":"09e7d22e2d9bf97f9549c9f37759bf11758d62f0","dxvkCommit":"46a3bc018bcae408d49d3c500e4e536a11f6789a","note":"DXVK submodule is pinned by git; Patches/dxvk-ios.patch is applied idempotently during CMake configuration. Library versions otherwise follow pinned upstream FetchContent tags and vcpkg builtin-baseline."}

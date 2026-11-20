@@ -1,0 +1,3 @@
+
+# Patch context deliberately contains a leading space on empty context lines.
+Patches/*.patch -whitespace

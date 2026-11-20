@@ -1548,6 +1548,8 @@ void GameState::xferSaveData( Xfer *xfer, SnapshotType which )
 				catch( ... )
 				{
 
+					// GeneralsX @bugfix Codex 20/11/2026 Preserve failed snapshot block in release diagnostics.
+					fprintf(stderr,"[SAVELOAD] Failed block %s in %s\n",blockInfo->blockName.str(),xfer->getIdentifier().str());
 					DEBUG_CRASH(( "Error loading block '%s' in file '%s'",
 												blockInfo->blockName.str(), xfer->getIdentifier().str() ));
 					throw;

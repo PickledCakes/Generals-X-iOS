@@ -3272,16 +3272,34 @@ void STLSpecialAlloc::deallocate(void* __p, size_t)
 	TheDynamicMemoryAllocator->freeBytes(__p);
 }
 
+// GeneralsX @bugfix Codex 19/11/2026 A dynamically loaded engine must not free libc++
+// allocations as game-pool blocks. Keep standard C++ allocations malloc-compatible,
+// retaining the original zero-filled-new contract and all explicit engine object pools.
+#ifdef GX_COMBINED_ENGINE
+#include <cstdlib>
+#include <new>
+static void *gxCollectionNew(size_t size)
+{
+    void *memory = ::calloc(1, size ? size : 1);
+    if (!memory) throw std::bad_alloc();
+    return memory;
+}
+#endif
+
 //-----------------------------------------------------------------------------
 /**
 	overload for global operator new; send requests to TheDynamicMemoryAllocator.
 */
 void *operator new(size_t size)
 {
+#ifdef GX_COMBINED_ENGINE
+	return gxCollectionNew(size);
+#else
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != nullptr, ("must init memory manager before calling global operator new"));
 	return TheDynamicMemoryAllocator->allocateBytes(size, "global operator new");
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -3290,10 +3308,14 @@ void *operator new(size_t size)
 */
 void *operator new[](size_t size)
 {
+#ifdef GX_COMBINED_ENGINE
+	return gxCollectionNew(size);
+#else
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != nullptr, ("must init memory manager before calling global operator new"));
 	return TheDynamicMemoryAllocator->allocateBytes(size, "global operator new[]");
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -3302,10 +3324,14 @@ void *operator new[](size_t size)
 */
 void operator delete(void *p)
 {
+#ifdef GX_COMBINED_ENGINE
+	::free(p);
+#else
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != nullptr, ("must init memory manager before calling global operator delete"));
 	TheDynamicMemoryAllocator->freeBytes(p);
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -3314,10 +3340,14 @@ void operator delete(void *p)
 */
 void operator delete[](void *p)
 {
+#ifdef GX_COMBINED_ENGINE
+	::free(p);
+#else
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != nullptr, ("must init memory manager before calling global operator delete"));
 	TheDynamicMemoryAllocator->freeBytes(p);
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -3326,6 +3356,9 @@ void operator delete[](void *p)
 */
 void* operator new(size_t size, const char * fname, int)
 {
+#ifdef GX_COMBINED_ENGINE
+	return gxCollectionNew(size);
+#else
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != nullptr, ("must init memory manager before calling global operator new"));
@@ -3333,6 +3366,7 @@ void* operator new(size_t size, const char * fname, int)
 	return TheDynamicMemoryAllocator->allocateBytesImplementation(size, fname);
 #else
 	return TheDynamicMemoryAllocator->allocateBytesImplementation(size);
+#endif
 #endif
 }
 
@@ -3342,10 +3376,14 @@ void* operator new(size_t size, const char * fname, int)
 */
 void operator delete(void * p, const char *, int)
 {
+#ifdef GX_COMBINED_ENGINE
+	::free(p);
+#else
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != nullptr, ("must init memory manager before calling global operator delete"));
 	TheDynamicMemoryAllocator->freeBytes(p);
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -3354,6 +3392,9 @@ void operator delete(void * p, const char *, int)
 */
 void* operator new[](size_t size, const char * fname, int)
 {
+#ifdef GX_COMBINED_ENGINE
+	return gxCollectionNew(size);
+#else
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != nullptr, ("must init memory manager before calling global operator new"));
@@ -3361,6 +3402,7 @@ void* operator new[](size_t size, const char * fname, int)
 	return TheDynamicMemoryAllocator->allocateBytesImplementation(size, fname);
 #else
 	return TheDynamicMemoryAllocator->allocateBytesImplementation(size);
+#endif
 #endif
 }
 
@@ -3370,10 +3412,14 @@ void* operator new[](size_t size, const char * fname, int)
 */
 void operator delete[](void * p, const char *, int)
 {
+#ifdef GX_COMBINED_ENGINE
+	::free(p);
+#else
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != nullptr, ("must init memory manager before calling global operator delete"));
 	TheDynamicMemoryAllocator->freeBytes(p);
+#endif
 }
 
 //-----------------------------------------------------------------------------

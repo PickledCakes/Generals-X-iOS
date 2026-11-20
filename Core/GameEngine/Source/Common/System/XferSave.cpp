@@ -30,6 +30,7 @@
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include "Common/XferSave.h"
+#include "Common/SaveGameWire.h"
 #include "Common/Snapshot.h"
 #include "Common/GameMemory.h"
 
@@ -316,6 +317,15 @@ void XferSave::xferAsciiString( AsciiString *asciiStringData )
 // ------------------------------------------------------------------------------------------------
 void XferSave::xferUnicodeString( UnicodeString *unicodeStringData )
 {
+    // GeneralsX @bugfix Codex 20/11/2026 New save files use Windows' UTF-16 wire format on every host.
+    if(m_identifier.endsWithNoCase(".sav")) {
+        auto units=gxsave::toUtf16(unicodeStringData->str(),unicodeStringData->getLength());
+        if(units.size()>255)throw XFER_STRING_ERROR;
+        UnsignedByte length=static_cast<UnsignedByte>(units.size());xferUnsignedByte(&length);
+        for(uint16_t unit:units) {UnsignedByte lo=unit&255,hi=unit>>8;xferUnsignedByte(&lo);xferUnsignedByte(&hi);}
+        return;
+    }
+
 
 	// sanity
 	if( unicodeStringData->getLength() > 255 )

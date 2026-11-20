@@ -42,6 +42,9 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
+#include <vector>
+#include <filesystem>
 
 #if defined(_UNIX)
 #include <strings.h>
@@ -653,9 +656,35 @@ Bool StdBIGFileSystem::loadBigFilesFromDirectory(AsciiString dir, AsciiString fi
 	FilenameList filenameList;
 	TheLocalFileSystem->getFileListInDirectory(dir, "", fileMask, filenameList, TRUE);
 
+	// GeneralsX @bugfix Codex 30/10/2026 First archive wins: mount retail patches before their unpatched counterparts.
+	// Explicit mod mounts use overwrite=TRUE and retain their existing order/precedence.
+	std::vector<AsciiString> archives(filenameList.begin(), filenameList.end());
+	if (!overwrite) {
+		std::stable_partition(archives.begin(), archives.end(), [&dir](const AsciiString& path) {
+			// Base-game fallback archives may be found recursively; do not promote their patches over Zero Hour.
+			std::filesystem::path parent = std::filesystem::path(path.str()).parent_path();
+			if (parent.empty()) parent = ".";
+			std::error_code ec;
+			if (!std::filesystem::equivalent(parent, dir.isEmpty() ? "." : dir.str(), ec)) return false;
+			const char *slash = path.reverseFind('/');
+			const char *backslash = path.reverseFind('\\');
+			if (!slash || (backslash && backslash > slash)) slash = backslash;
+			const AsciiString name(slash ? slash + 1 : path.str());
+			return name.compareNoCase("Patch.big") == 0 || name.compareNoCase("PatchINI.big") == 0 ||
+				name.compareNoCase("PatchWindow.big") == 0 || name.compareNoCase("PatchData.big") == 0 ||
+				name.compareNoCase("PatchZH.big") == 0;
+		});
+	}
+    // GeneralsX @bugfix Codex 20/11/2026 Root !mod archives precede retail patches, matching the Windows launcher ordering.
+    if (!overwrite) std::stable_partition(archives.begin(),archives.end(),[](const AsciiString &path) {
+        const char *leaf=path.str();
+        for (const char *p=leaf;*p;++p) if (*p=='/' || *p=='\\') leaf=p+1;
+        return *leaf=='!';
+    });
+
 	Bool actuallyAdded = FALSE;
-	FilenameListIter it = filenameList.begin();
-	while (it != filenameList.end()) {
+	auto it = archives.begin();
+	while (it != archives.end()) {
 #if RTS_ZEROHOUR
 		// TheSuperHackers @bugfix bobtista 18/11/2025 Skip duplicate INIZH.big in Data\INI to prevent CRC mismatches.
 		// English, Chinese, and Korean SKUs shipped with two INIZH.big files (one in Run directory, one in Run\Data\INI).

@@ -1,0 +1,57 @@
+# GeneralsX @build Codex 19/11/2026 One signed app, two isolated embedded engines.
+name: GeneralsCollection
+options:
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  GeneralsCollection:
+    type: application
+    platform: iOS
+    sources:
+      - path: Launcher
+        excludes:
+          - Info.plist
+      - path: Generals/Assets.xcassets
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: Foundation.framework
+      - sdk: CoreGraphics.framework
+      - sdk: UniformTypeIdentifiers.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.example.generalsx
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIconZeroHour AppIconShockWave AppIconGLA AppIconChina"
+        CLANG_ENABLE_OBJC_ARC: YES
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        HEADER_SEARCH_PATHS:
+          - '"$(GX_BUILD_DIR)/_deps/sdl3-src/include"'
+          - '"$(GX_ROOT)/Core/GameEngine/Include"'
+        LIBRARY_SEARCH_PATHS:
+          - '"$(GX_BUILD_DIR)/_deps/sdl3-build"'
+        OTHER_LDFLAGS: "$(inherited) -lSDL3"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+    info:
+      path: Launcher/Info.plist
+      properties:
+        CFBundleDisplayName: Generals X
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "108"
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        CADisableMinimumFrameDurationOnPhone: true
+        UILaunchStoryboardName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSupportsIndirectInputEvents: true
+        NSLocalNetworkUsageDescription: "Used for LAN multiplayer game discovery."

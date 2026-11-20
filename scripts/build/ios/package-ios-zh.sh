@@ -3,7 +3,7 @@
 #
 # Flow:
 #   1. xcodegen + xcodebuild produce a provisioning-shell app with automatic signing
-#      (bundle id me.ammaar.generalszh, team 7S264298H8, Info.plist with file sharing).
+#      (bundle id org.example.generalsxzh, team 7S264298H8, Info.plist with file sharing).
 #   2. The stub executable is replaced with the real z_generals engine binary.
 #   3. Runtime dylibs (DXVK d3d8/d3d9, SDL3, SDL3_image) are embedded in Frameworks/
 #      and their install names rewritten to @rpath.
@@ -37,8 +37,8 @@ IDENTITY="${GX_SIGN_IDENTITY:-Apple Development}"
 
 # Signing/bundle identity — override for your own Apple Developer account:
 #   GX_TEAM_ID=ABCDE12345 GX_BUNDLE_ID=com.you.generalszh ./package-ios-zh.sh --install
-TEAM_ID="${GX_TEAM_ID:-7S264298H8}"
-BUNDLE_ID="${GX_BUNDLE_ID:-me.ammaar.generalszh}"
+TEAM_ID="${GX_TEAM_ID:?Set GX_TEAM_ID to your own Apple Team ID}"
+BUNDLE_ID="${GX_BUNDLE_ID:-org.example.generalsxzh}"
 
 GAME_BIN="${BUILD_DIR}/GeneralsMD/GeneralsXZH.app/GeneralsXZH"
 DXVK_BUILD="${BUILD_DIR}/_deps/dxvk-build-macos"
@@ -54,7 +54,7 @@ echo "==> Generating Xcode project (xcodegen)"
 echo "==> Building provisioning shell app"
 xcodebuild -project "${IOS_DIR}/${APP_NAME}.xcodeproj" \
     -scheme "${APP_NAME}" -configuration Release \
-    -destination 'generic/platform=iOS' \
+    -destination "${GX_DESTINATION:-generic/platform=iOS}" \
     -derivedDataPath "${DERIVED}" \
     DEVELOPMENT_TEAM="${TEAM_ID}" \
     PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \

@@ -797,7 +797,7 @@ void SDL3Mouse::scaleMouseCoordinates(int rawX, int rawY, Uint32 windowID, int& 
 	int internalHeight = TheDisplay->getHeight();
 
 	int pbX, pbY, pbW, pbH;
-	if (TheDisplay->getViewportRect(pbX, pbY, pbW, pbH)) {
+	if (TheDisplay->getViewportRect(pbX, pbY, pbW, pbH) && pbW > 0 && pbH > 0) {
 		int clampedX = rawX - pbX;
 		if (clampedX < 0) clampedX = 0;
 		if (clampedX > pbW) clampedX = pbW;

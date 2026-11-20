@@ -239,7 +239,10 @@ endif()
 # GeneralsX @refactor fbraz3 31/03/2026 Headers/sources now in Core/GameEngineDevice; include dirs via corei_gameenginedevice_private/public
 if(SAGE_USE_OPENAL)
     include(${CMAKE_SOURCE_DIR}/cmake/openal.cmake)
-    find_package(OpenAL REQUIRED)
+    # GeneralsX @build Codex 31/10/2026 Reuse the shared OpenAL target on iOS.
+    if(NOT TARGET OpenAL::OpenAL)
+        find_package(OpenAL REQUIRED)
+    endif()
     target_link_libraries(g_gameenginedevice PUBLIC OpenAL::OpenAL)
 endif()
 

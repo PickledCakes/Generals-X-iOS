@@ -163,6 +163,10 @@ bool DX8Wrapper::Pillarbox_Setup(int gameW, int gameH)
 	int bbW = (int)_PresentParameters.BackBufferWidth;
 	int bbH = (int)_PresentParameters.BackBufferHeight;
 	float density = 1.0f;
+	// GeneralsX @bugfix Codex 30/10/2026 Input uses window points even when present sizes are already known.
+	int windowW = 0, windowH = 0;
+	GetWindowSize(windowW, windowH, density);
+	if (density <= 0.0f) density = 1.0f;
 
 	if (bbW <= 0 || bbH <= 0) {
 		if (!GetWindowSize(bbW, bbH, density)) {
@@ -447,6 +451,10 @@ void DX8Wrapper::Pillarbox_Process_Resize()
 			return;
 		}
 	}
+
+	// GeneralsX @bugfix Codex 30/10/2026 Never reset a device to an unavailable drawable; refresh input density even without resizing.
+	if (physW <= 0 || physH <= 0) return;
+	s_pixelDensity = density > 0.0f ? density : 1.0f;
 
 	// Nothing to do if backbuffer already matches window
 	if ((int)_PresentParameters.BackBufferWidth == physW &&
@@ -1339,7 +1347,9 @@ bool DX8Wrapper::Set_Render_Device(int dev, int width, int height, int bits, int
 	** - if in windowed mode, the backbuffer must use the current display format.
 	** - the depth buffer must use
 	*/
-	if (IsWindowed) {
+	// GeneralsX @bugfix Codex 30/10/2026 SDL fullscreen still uses a windowed DXVK swapchain.
+	// Format/capability negotiation must follow that presentation mode, not require an exclusive display mode at the game resolution.
+	if (_PresentParameters.Windowed) {
 
 		D3DDISPLAYMODE desktop_mode;
 		::ZeroMemory(&desktop_mode, sizeof(D3DDISPLAYMODE));
@@ -3330,6 +3340,12 @@ void DX8Wrapper::Compute_Caps(WW3DFormat display_format)
 	DX8_Assert();
 	delete CurrentCaps;
 	CurrentCaps=new DX8Caps(_Get_D3D8(),D3DDevice,display_format,Get_Current_Adapter_Identifier());
+#ifndef _WIN32
+	fprintf(stderr, "[DX8_CAPS] display=%d backbuffer=%d presentWindowed=%d gameWindowed=%d videoXRGB=%d videoRGB565=%d\n",
+		(int)display_format, (int)_PresentParameters.BackBufferFormat, (int)_PresentParameters.Windowed,
+		(int)IsWindowed, (int)CurrentCaps->Support_Texture_Format(WW3D_FORMAT_X8R8G8B8),
+		(int)CurrentCaps->Support_Texture_Format(WW3D_FORMAT_R5G6B5));
+#endif
 }
 
 

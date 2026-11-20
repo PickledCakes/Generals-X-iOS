@@ -196,6 +196,7 @@ protected:
 	PlayingAudio *getFirst3DSample(AudioEventRTS *event);
 
 	void adjustPlayingVolume(PlayingAudio *audio);
+	Bool shouldPauseEvent(const AudioEventRTS *event) const;
 
 	void stopAllSpeech(void);
     static ALenum getALFormat(uint8_t channels, uint8_t bitsPerSample);
@@ -229,6 +230,8 @@ protected:
 	// in the sound engine
 	std::list<PlayingAudio *> m_stoppedAudio;
 
+	// GeneralsX @bugfix Codex 30/10/2026 Pause applies to future requests and fading sources as well as currently playing ones.
+	UnsignedInt m_pausedAudio = 0;
 	OpenALAudioFileCache *m_audioCache;
 	UnsignedInt m_num2DSamples;
 	UnsignedInt m_num3DSamples;

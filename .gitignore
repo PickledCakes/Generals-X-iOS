@@ -96,3 +96,37 @@ logs_*.zip
 # iOS shell-app build products (XcodeGen regenerates the project from ios/project.yml)
 ios/build/
 ios/GeneralsXZH.xcodeproj/
+
+# Local retail/mod installations, generated artwork and signing material
+/GameFiles/
+/inputs/
+/GeneralsZH/
+/GeneralsRetail/
+/generalsretail/
+/steam-download/
+/MoltenVK/
+/ios-staging/
+/build.local.json
+/ios/build-collection/
+/ios/build-generals/
+/ios/GeneralsCollection.xcodeproj/
+/ios/GeneralsX.xcodeproj/
+/ios/Launcher/*.png
+/ios/Launcher/AlternateIcons.xcassets/
+/ios/Generals/Assets.xcassets/AppIcon.appiconset/icon.png
+/ios/Stub/Assets.xcassets/AppIcon.appiconset/icon.png
+*.big
+*.gib
+*.bik
+*.sav
+*.rep
+*.ipa
+*.mobileprovision
+*.p12
+*.pfx
+*.cer
+*.bak-*
+
+# Public build entry points are source, not build products.
+!/build.command
+!/build.example.json

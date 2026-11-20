@@ -33,6 +33,7 @@
 #include "SDL3Device/GameClient/SDL3Mouse.h"
 #include "SDL3Device/GameClient/SDL3Keyboard.h"
 #include "GameClient/Mouse.h"
+#include "GameClient/Display.h"
 #include "GameClient/Keyboard.h"
 #include "GameClient/GameWindow.h"
 #include "GameClient/GameWindowManager.h"
@@ -141,7 +142,8 @@ struct TouchState {
 		PENDING,     // finger1 down, gesture identity not yet known, nothing sent
 		DRAGGING,    // finger1 drag in progress, LMB held
 		LONGPRESSED, // long-press fired (RMB click sent), swallow until lift
-		PAN          // two-finger camera pan, RMB held
+		PAN,         // two-finger camera pan, RMB held
+		MOVIE_TAP    // startup movie owns the touch; never deliver it to the menu
 	};
 
 	Phase phase = IDLE;
@@ -152,6 +154,7 @@ struct TouchState {
 	float panX = 0.0f, panY = 0.0f;     // pan centroid
 	float pinchDist = 0.0f;             // finger distance at last wheel step
 	Uint64 downTicks = 0;
+	bool movieTapCanSkip = false;
 	float f1x = 0.0f, f1y = 0.0f, f2x = 0.0f, f2y = 0.0f; // normalized per finger
 };
 
@@ -172,6 +175,8 @@ void sendSyntheticMouse(SDL3Mouse *mouse, SDL_Window *window, Uint32 type,
 	SDL_Event ev;
 	SDL_zero(ev);
 	ev.type = type;
+	// GeneralsX @bugfix Codex 30/10/2026 Directly queued events do not receive SDL_PushEvent timestamps.
+	ev.common.timestamp = SDL_GetTicksNS();
 	switch (type) {
 		case SDL_EVENT_MOUSE_MOTION:
 			ev.motion.windowID = windowID;
@@ -198,6 +203,19 @@ void sendSyntheticMouse(SDL3Mouse *mouse, SDL_Window *window, Uint32 type,
 	mouse->addSDLEvent(&ev);
 }
 
+// GeneralsX @bugfix Codex 30/10/2026 System gestures must not leave deferred taps or held buttons alive on resume.
+void cancelTouch(SDL3Mouse *mouse, SDL_Window *window)
+{
+	if (s_touch.phase == TouchState::DRAGGING) {
+		sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_BUTTON_UP,
+		                   s_touch.lastX, s_touch.lastY, SDL_BUTTON_LEFT);
+	} else if (s_touch.phase == TouchState::PAN) {
+		sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_BUTTON_UP,
+		                   s_touch.panX, s_touch.panY, SDL_BUTTON_RIGHT);
+	}
+	s_touch = TouchState{};
+}
+
 void beginPan(SDL3Mouse *mouse, SDL_Window *window, int winW, int winH)
 {
 	s_touch.panX = (s_touch.f1x + s_touch.f2x) * 0.5f * (float)winW;
@@ -217,6 +235,37 @@ void handleTouchEvent(SDL3Mouse *mouse, SDL_Window *window, const SDL_Event &eve
 	SDL_GetWindowSize(window, &winW, &winH);
 	const float px = event.tfinger.x * (float)winW;
 	const float py = event.tfinger.y * (float)winH;
+
+	// GeneralsX @feature Codex 30/10/2026 A short single-finger tap skips a skippable startup movie, just like Escape.
+	// Own the entire gesture so neither a protected logo tap nor the skip release can click the menu underneath.
+	const bool startupMovie = TheGlobalData && (TheGlobalData->m_playIntro || TheGlobalData->m_afterIntro);
+	if (s_touch.phase == TouchState::IDLE && event.type == SDL_EVENT_FINGER_DOWN && startupMovie) {
+		s_touch.phase = TouchState::MOVIE_TAP;
+		s_touch.finger1 = event.tfinger.fingerID;
+		s_touch.downX = px;
+		s_touch.downY = py;
+		s_touch.downTicks = SDL_GetTicks();
+		s_touch.movieTapCanSkip = TheDisplay && TheDisplay->isMoviePlaying() && TheGlobalData->m_allowExitOutOfMovies;
+		return;
+	}
+	if (s_touch.phase == TouchState::MOVIE_TAP) {
+		if (event.type == SDL_EVENT_FINGER_DOWN && event.tfinger.fingerID != s_touch.finger1) {
+			s_touch.movieTapCanSkip = false;
+		} else if (event.tfinger.fingerID == s_touch.finger1) {
+			if (event.type == SDL_EVENT_FINGER_MOTION &&
+				SDL_fabsf(px - s_touch.downX) + SDL_fabsf(py - s_touch.downY) >= TAP_DEAD_ZONE_PX) {
+				s_touch.movieTapCanSkip = false;
+			} else if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
+				const bool skip = event.type == SDL_EVENT_FINGER_UP && s_touch.movieTapCanSkip &&
+					SDL_GetTicks() - s_touch.downTicks < LONG_PRESS_MS &&
+					SDL_fabsf(px - s_touch.downX) + SDL_fabsf(py - s_touch.downY) < TAP_DEAD_ZONE_PX && startupMovie &&
+					TheDisplay && TheDisplay->isMoviePlaying() && TheGlobalData->m_allowExitOutOfMovies;
+				s_touch = TouchState{};
+				if (skip) TheDisplay->stopMovie();
+			}
+		}
+		return;
+	}
 
 	switch (event.type) {
 	case SDL_EVENT_FINGER_DOWN:
@@ -606,6 +655,11 @@ void SDL3GameEngine::pollSDL3Events(void)
 				break;
 
 			case SDL_EVENT_WINDOW_FOCUS_LOST:
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+				if (SDL3Mouse *mouse = dynamic_cast<SDL3Mouse*>(TheMouse)) {
+					cancelTouch(mouse, m_SDLWindow);
+				}
+#endif
 				m_IsActive = false;
 				if (m_IsTextInputActive) {
 					SDL_StopTextInput(m_SDLWindow);
@@ -620,7 +674,11 @@ void SDL3GameEngine::pollSDL3Events(void)
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 			// App suspension/resume: mirror the desktop focus handling so audio
 			// and mouse state pause cleanly (the render gate lives in update()).
+			case SDL_EVENT_WILL_ENTER_BACKGROUND:
 			case SDL_EVENT_DID_ENTER_BACKGROUND:
+				if (SDL3Mouse *mouse = dynamic_cast<SDL3Mouse*>(TheMouse)) {
+					cancelTouch(mouse, m_SDLWindow);
+				}
 				m_IsActive = false;
 				if (TheMouse) {
 					TheMouse->loseFocus();
@@ -691,7 +749,7 @@ void SDL3GameEngine::pollSDL3Events(void)
 			case SDL_EVENT_FINGER_MOTION:
 			case SDL_EVENT_FINGER_UP:
 			case SDL_EVENT_FINGER_CANCELED:
-				if (TheMouse && m_SDLWindow) {
+				if (TheMouse && m_SDLWindow && !iosShouldPauseRendering()) {
 					SDL3Mouse* mouse = dynamic_cast<SDL3Mouse*>(TheMouse);
 					if (mouse) {
 						handleTouchEvent(mouse, m_SDLWindow, event);
@@ -714,7 +772,7 @@ void SDL3GameEngine::pollSDL3Events(void)
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 	// Poll the long-press timer every frame; a stationary finger emits no events.
-	if (TheMouse && m_SDLWindow) {
+	if (TheMouse && m_SDLWindow && !iosShouldPauseRendering()) {
 		SDL3Mouse* touchMouse = dynamic_cast<SDL3Mouse*>(TheMouse);
 		if (touchMouse) {
 			updateTouchLongPress(touchMouse, m_SDLWindow);

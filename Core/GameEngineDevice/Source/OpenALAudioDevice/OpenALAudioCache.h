@@ -45,6 +45,8 @@ struct PlayingAudio
 	Bool m_requestStop;
 	Bool m_cleanupAudioEventRTS;
 	Int m_framesFaded;
+	// GeneralsX @bugfix Codex 31/10/2026 Count audible music cycles for campaign script conditions.
+	Int m_musicLoopsCompleted = 0;
 
 	PlayingAudio() :
 		m_type(PAT_INVALID),

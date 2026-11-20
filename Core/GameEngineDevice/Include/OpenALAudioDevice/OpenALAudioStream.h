@@ -48,14 +48,17 @@ public:
     void update();
     void reset();
 
-    void play() { alSourcePlay(m_source); }
-    void pause() { alSourcePause(m_source); }
-    void stop() { alSourceStop(m_source); }
+    // GeneralsX @bugfix Codex 30/10/2026 Explicit pauses must survive underrun maintenance.
+    bool isPaused() const { return m_paused; }
+    void play() { m_paused = false; alSourcePlay(m_source); }
+    void pause() { m_paused = true; alSourcePause(m_source); }
+    void stop() { m_paused = false; alSourceStop(m_source); }
 
     void setVolume(float vol) { alSourcef(m_source, AL_GAIN, vol); }
 
 protected:
     std::function<bool()> m_requireDataCallback = nullptr;
+    bool m_paused = false;
     bool m_endOfData = false; ///< GeneralsX: source stream signalled true EOF; stop restarting it
     int m_stalledProbes = 0;  ///< GeneralsX: consecutive EOF-probes that produced no new data
     ALuint m_source = 0;

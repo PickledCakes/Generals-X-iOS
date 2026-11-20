@@ -448,7 +448,10 @@ void MainMenuInit( WindowLayout *layout, void *userData )
 {
 	TheWritableGlobalData->m_breakTheMovie = FALSE;
 
-	TheShell->showShellMap(TRUE);
+	// GeneralsX @bugfix Codex 31/10/2026 Start the shell map after the startup movie sequence.
+	if (!TheGlobalData->m_playIntro && !TheGlobalData->m_afterIntro) {
+		TheShell->showShellMap(TRUE);
+	}
 	TheMouse->setVisibility(TRUE);
 	//winVidManager = NEW WindowVideoManager;
 	buttonPushed = FALSE;

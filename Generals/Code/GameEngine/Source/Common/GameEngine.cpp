@@ -913,13 +913,9 @@ void GameEngine::execute()
 
 			TheFramePacer->update();
 
-			// GeneralsX @build BenderAI 18/02/2026 - Call display step and draw every frame
-			// This was missing, causing only magenta screen (no UI rendering)
-			if (TheDisplay != nullptr)
-			{
-				TheDisplay->step();
-				TheDisplay->draw();
-			}
+			// GeneralsX @bugfix Codex 18/11/2026 GameClient::update already draws the display,
+			// and GameClient::step advances views with game logic. Drawing/stepping here again
+			// doubles camera/animation updates and consumes one-shot button cooldown overlays.
 		}
 
 #ifdef PERF_TIMERS
@@ -1133,5 +1129,8 @@ void updateTGAtoDDS()
 
 	fp->close();
 
+// GeneralsX @build Codex 31/10/2026 The offline Windows texture converter cannot run on other platforms.
+#ifdef _WIN32
 	system(CONVERT_EXEC1);
+#endif
 }

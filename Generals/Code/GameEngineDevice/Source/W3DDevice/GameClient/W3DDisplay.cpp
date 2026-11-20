@@ -2036,6 +2036,10 @@ AGAIN:
 				if( TheMouse )
 					TheMouse->DRAW();
 
+                // GeneralsX @bugfix Codex 19/11/2026 Cover the handoff frame between EA and opening movies.
+                if ((TheGlobalData->m_playIntro || TheGlobalData->m_afterIntro) && !(m_videoStream && m_videoBuffer))
+                    drawFillRect(0, 0, getWidth(), getHeight(), GameMakeColor(0, 0, 0, 255));
+
 				if ( m_videoStream && m_videoBuffer )
 				{
 					// TheSuperHackers @bugfix Mauller 20/07/2025 scale videos based on screen size so they are shown in their original aspect
@@ -2964,6 +2968,8 @@ VideoBuffer*	W3DDisplay::createVideoBuffer()
 
 void W3DDisplay::drawScaledVideoBuffer( VideoBuffer *buffer, VideoStreamInterface *stream )
 {
+	// GeneralsX @bugfix Codex 31/10/2026 Cover initialized menu artwork around fullscreen movies.
+	drawFillRect(0, 0, getWidth(), getHeight(), GameMakeColor(0, 0, 0, 255));
 	// TheSuperHackers @bugfix Mauller 20/07/2025 scale videos based on screen size so they are shown in their original aspect
 	Real videoAspect = (Real)stream->width() / (Real)stream->height();
 	Real displayAspect = (Real)getWidth() / (Real)getHeight();

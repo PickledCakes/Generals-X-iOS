@@ -67,6 +67,7 @@
 #include "Common/file.h"
 
 #include <AL/alext.h>
+#include <cmath>
 
 // GeneralsX @bugfix 14/06/2026 Self-heal for stuck "disallow speech" flag.
 // Uninterruptible streamed speech (e.g. Generals Challenge enemy taunts) sets
@@ -102,6 +103,14 @@ static inline bool sourceIsStopped(ALuint source)
 	alGetSourcei(source, AL_SOURCE_STATE, &state);
 	
 	return (state == AL_STOPPED);
+}
+
+// GeneralsX @bugfix Codex 30/10/2026 Resume only sources that were paused, leaving menu clicks and completed sounds alone.
+static inline bool sourceIsPaused(ALuint source)
+{
+	ALint state = AL_INITIAL;
+	alGetSourcei(source, AL_SOURCE_STATE, &state);
+	return state == AL_PAUSED;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -531,6 +540,7 @@ void OpenALAudioManager::reset()
 	m_allEventsLoaded.clear();
 #endif
 
+	m_pausedAudio = 0;
 	AudioManager::reset();   // clears m_disallowSpeech
 	s_disallowSpeechSetFrame = 0;  // GeneralsX @bugfix 14/06/2026 clear stale backstop frame across new game/map
 	stopAllAudioImmediately();
@@ -607,8 +617,27 @@ void OpenALAudioManager::stopAudio(AudioAffect which)
 }
 
 //-------------------------------------------------------------------------------------------------
+// GeneralsX @bugfix Codex 30/10/2026 Retain paused categories so late world/ambient requests cannot play through menus.
+Bool OpenALAudioManager::shouldPauseEvent(const AudioEventRTS *event) const
+{
+	const AudioEventInfo *info = event ? event->getAudioEventInfo() : nullptr;
+	if (!info) return FALSE;
+	if (info->m_soundType == AT_SoundEffect && BitIsSet(info->m_type, ST_UI)) return FALSE;
+	AudioAffect category = AudioAffect_Sound;
+	if (info->m_soundType == AT_Music) category = AudioAffect_Music;
+	else if (info->m_soundType == AT_Streaming) category = AudioAffect_Speech;
+	else if (event->isPositionalAudio()) category = AudioAffect_Sound3D;
+	return BitIsSet(m_pausedAudio, category);
+}
+
 void OpenALAudioManager::pauseAudio(AudioAffect which)
 {
+	m_pausedAudio |= which;
+	for (PlayingAudio *audio : m_fadingAudio) {
+		if (!audio || !shouldPauseEvent(audio->m_audioEventRTS)) continue;
+		if (audio->m_stream) audio->m_stream->pause();
+		else alSourcePause(audio->m_source);
+	}
 	std::list<PlayingAudio*>::iterator it;
 
 	PlayingAudio* playing = NULL;
@@ -616,7 +645,7 @@ void OpenALAudioManager::pauseAudio(AudioAffect which)
 		for (it = m_playingSounds.begin(); it != m_playingSounds.end(); ++it) {
 			playing = *it;
 			if (playing) {
-				alSourceStop(playing->m_source);
+				alSourcePause(playing->m_source);
 			}
 		}
 	}
@@ -625,7 +654,7 @@ void OpenALAudioManager::pauseAudio(AudioAffect which)
 		for (it = m_playing3DSounds.begin(); it != m_playing3DSounds.end(); ++it) {
 			playing = *it;
 			if (playing) {
-				alSourceStop(playing->m_source);
+				alSourcePause(playing->m_source);
 			}
 		}
 	}
@@ -647,7 +676,7 @@ void OpenALAudioManager::pauseAudio(AudioAffect which)
 				}
 
 				// GeneralsX @bugfix BenderAI 11/03/2026 - streams use m_stream->pause(), not alSourcePause(m_source) which is always 0
-				if (playing->m_stream) {
+				if (playing->m_stream && playing->m_stream->isPlaying()) {
 					playing->m_stream->pause();
 				}
 			}
@@ -675,13 +704,19 @@ void OpenALAudioManager::pauseAudio(AudioAffect which)
 //-------------------------------------------------------------------------------------------------
 void OpenALAudioManager::resumeAudio(AudioAffect which)
 {
+	m_pausedAudio &= ~which;
+	for (PlayingAudio *audio : m_fadingAudio) {
+		if (!audio || shouldPauseEvent(audio->m_audioEventRTS)) continue;
+		if (audio->m_stream && audio->m_stream->isPaused()) audio->m_stream->play();
+		else if (!audio->m_stream && sourceIsPaused(audio->m_source)) alSourcePlay(audio->m_source);
+	}
 	std::list<PlayingAudio*>::iterator it;
 
 	PlayingAudio* playing = NULL;
 	if (BitIsSet(which, AudioAffect_Sound)) {
 		for (it = m_playingSounds.begin(); it != m_playingSounds.end(); ++it) {
 			playing = *it;
-			if (playing) {
+			if (playing && sourceIsPaused(playing->m_source)) {
 				alSourcePlay(playing->m_source);
 			}
 		}
@@ -690,7 +725,7 @@ void OpenALAudioManager::resumeAudio(AudioAffect which)
 	if (BitIsSet(which, AudioAffect_Sound3D)) {
 		for (it = m_playing3DSounds.begin(); it != m_playing3DSounds.end(); ++it) {
 			playing = *it;
-			if (playing) {
+			if (playing && sourceIsPaused(playing->m_source)) {
 				alSourcePlay(playing->m_source);
 			}
 		}
@@ -711,7 +746,9 @@ void OpenALAudioManager::resumeAudio(AudioAffect which)
 						continue;
 					}
 				}
-				alSourcePlay(playing->m_stream->getSource());
+				if (playing->m_stream && playing->m_stream->isPaused()) {
+					playing->m_stream->play();
+				}
 			}
 		}
 	}
@@ -1333,24 +1370,12 @@ void OpenALAudioManager::adjustPlayingVolume(PlayingAudio* audio)
 	// GeneralsX @bugfix BenderAI 11/03/2026 - guard against null m_audioEventRTS
 	if (!audio->m_audioEventRTS)
 		return;
-	Real desiredVolume = audio->m_audioEventRTS->getVolume() * audio->m_audioEventRTS->getVolumeShift();
-	if (audio->m_type == PAT_Sample) {
-		alSourcef(audio->m_source, AL_GAIN, m_soundVolume * desiredVolume);
-
-	}
-	else if (audio->m_type == PAT_3DSample) {
-		alSourcef(audio->m_source, AL_GAIN, m_sound3DVolume * desiredVolume);
-
-	}
-	else if (audio->m_type == PAT_Stream) {
-		// GeneralsX @bugfix BenderAI 11/03/2026 - guard against null audioEventRTS/info
-		const AudioEventInfo* info = (audio->m_audioEventRTS ? audio->m_audioEventRTS->getAudioEventInfo() : nullptr);
-		if (info && info->m_soundType == AT_Music) {
-			alSourcef(audio->m_stream->getSource(), AL_GAIN, m_musicVolume * desiredVolume);
-		}
-		else {
-			alSourcef(audio->m_stream->getSource(), AL_GAIN, m_speechVolume * desiredVolume);
-		}
+	// GeneralsX @bugfix Codex 30/10/2026 Include the same range attenuation used at source creation.
+	const Real gain = getEffectiveVolume(audio->m_audioEventRTS);
+	if (audio->m_type == PAT_Stream) {
+		if (audio->m_stream) audio->m_stream->setVolume(gain);
+	} else {
+		alSourcef(audio->m_source, AL_GAIN, gain);
 	}
 }
 
@@ -1508,9 +1533,8 @@ Bool OpenALAudioManager::hasMusicTrackCompleted(const AsciiString& trackName, In
 		const AudioEventInfo* info = (playing && playing->m_audioEventRTS) ? playing->m_audioEventRTS->getAudioEventInfo() : nullptr;
 		if (info && info->m_soundType == AT_Music) {
 			if (playing->m_audioEventRTS->getEventName() == trackName) {
-				//if (INFINITE_LOOP_COUNT - AIL_stream_loop_count(playing->m_stream) >= numberOfTimes) {
-				// return TRUE;
-				//}
+				// GeneralsX @bugfix Codex 31/10/2026 Match Miles' completed-loop condition.
+				return playing->m_musicLoopsCompleted >= numberOfTimes;
 			}
 		}
 	}
@@ -2235,8 +2259,7 @@ void OpenALAudioManager::adjustVolumeOfPlayingAudio(AsciiString eventName, Real 
 		if (playing && playing->m_audioEventRTS && playing->m_audioEventRTS->getEventName() == eventName) {
 			// Adjust it
 			playing->m_audioEventRTS->setVolume(newVolume);
-			Real desiredVolume = playing->m_audioEventRTS->getVolume() * playing->m_audioEventRTS->getVolumeShift();
-			alSourcef(playing->m_source, AL_GAIN, desiredVolume);
+			adjustPlayingVolume(playing);
 		}
 	}
 
@@ -2245,8 +2268,7 @@ void OpenALAudioManager::adjustVolumeOfPlayingAudio(AsciiString eventName, Real 
 		if (playing && playing->m_audioEventRTS && playing->m_audioEventRTS->getEventName() == eventName) {
 			// Adjust it
 			playing->m_audioEventRTS->setVolume(newVolume);
-			Real desiredVolume = playing->m_audioEventRTS->getVolume() * playing->m_audioEventRTS->getVolumeShift();
-			alSourcef(playing->m_source, AL_GAIN, desiredVolume);
+			adjustPlayingVolume(playing);
 		}
 	}
 
@@ -2255,8 +2277,7 @@ void OpenALAudioManager::adjustVolumeOfPlayingAudio(AsciiString eventName, Real 
 		if (playing && playing->m_audioEventRTS && playing->m_audioEventRTS->getEventName() == eventName) {
 			// Adjust it
 			playing->m_audioEventRTS->setVolume(newVolume);
-			Real desiredVolume = playing->m_audioEventRTS->getVolume() * playing->m_audioEventRTS->getVolumeShift();
-			alSourcef(playing->m_source, AL_GAIN, desiredVolume);
+			adjustPlayingVolume(playing);
 		}
 	}
 }
@@ -2370,6 +2391,12 @@ void OpenALAudioManager::processRequestList(void)
 			continue;
 		}
 
+		// GeneralsX @bugfix Codex 30/10/2026 Keep late world sounds queued while paused; UI clicks remain live.
+		if (req->m_request == AR_Play && shouldPauseEvent(req->m_pendingEvent)) {
+			++it;
+			continue;
+		}
+
 		if (!shouldProcessRequestThisFrame(req)) {
 			adjustRequest(req);
 			++it;
@@ -2459,10 +2486,8 @@ void OpenALAudioManager::processPlayingList(void)
 		}
 		else
 		{
-			if (m_volumeHasChanged)
-			{
-				adjustPlayingVolume(playing);
-			}
+			// GeneralsX @bugfix Codex 30/10/2026 Camera movement changes ambient gain even when the sliders are unchanged.
+			adjustPlayingVolume(playing);
 
 			const Coord3D* pos = getCurrentPositionFromEvent(playing->m_audioEventRTS);
 			if (pos)
@@ -2476,7 +2501,7 @@ void OpenALAudioManager::processPlayingList(void)
 				else
 				{
 					Real volForConsideration = getEffectiveVolume(playing->m_audioEventRTS);
-					volForConsideration /= (m_sound3DVolume > 0.0f ? m_soundVolume : 1.0f);
+					volForConsideration /= (m_sound3DVolume > 0.0f ? m_sound3DVolume : 1.0f);
 					// GeneralsX @bugfix BenderAI 11/03/2026 - guard against null getAudioEventInfo()
 				const AudioEventInfo* pai = (playing->m_audioEventRTS ? playing->m_audioEventRTS->getAudioEventInfo() : nullptr);
 				Bool playAnyways = pai && (BitIsSet(pai->m_type, ST_GLOBAL) || pai->m_priority == AP_CRITICAL);
@@ -2531,8 +2556,32 @@ void OpenALAudioManager::processPlayingList(void)
 		// After update(), if stream source is still stopped there is no more data — release it.
 		if (playing->m_stream && sourceIsStopped(playing->m_stream->getSource()))
 		{
-			// If this was an uninterruptible speech stream, clear the disallow flag.
 			const AudioEventInfo* streamInfo = (playing->m_audioEventRTS ? playing->m_audioEventRTS->getAudioEventInfo() : nullptr);
+			// GeneralsX @bugfix Codex 31/10/2026 Miles loops music until a script stops or replaces it.
+			// Count only fully played EOFs, never prefetched EOF, underruns, or paused audio.
+			if (streamInfo && streamInfo->m_soundType == AT_Music && !playing->m_requestStop &&
+				!shouldPauseEvent(playing->m_audioEventRTS) && playing->m_ffmpegFile &&
+				playing->m_ffmpegFile->isAtEof())
+			{
+				++playing->m_musicLoopsCompleted;
+				// Our FFmpeg input is forward-only (including BIG archive files). Reopen the
+				// decoder instead of seeking; callbacks remain attached to the same objects.
+				File* file = TheFileSystem->openFile(playing->m_audioEventRTS->getFilename().str());
+				if (file)
+				{
+					playing->m_ffmpegFile->close();
+					if (playing->m_ffmpegFile->open(file))
+					{
+						playing->m_stream->reset();
+						playing->m_stream->update();
+						playStream(playing->m_audioEventRTS, playing->m_stream);
+						++it;
+						continue;
+					}
+				}
+				DEBUG_LOG(("Unable to restart music track %s\n", playing->m_audioEventRTS->getEventName().str()));
+			}
+			// If this was an uninterruptible speech stream, clear the disallow flag.
 			if (streamInfo && streamInfo->m_soundType == AT_Streaming && getDisallowSpeech())
 			{
 				setDisallowSpeech(FALSE);
@@ -2620,6 +2669,11 @@ void OpenALAudioManager::processFadingList(void)
 	for (it = m_fadingAudio.begin(); it != m_fadingAudio.end(); /* emtpy */) {
 		playing = *it;
 		if (!playing) {
+			it = m_fadingAudio.erase(it);
+			continue;
+		}
+		if (shouldPauseEvent(playing->m_audioEventRTS)) {
+			++it;
 			continue;
 		}
 
@@ -2880,6 +2934,24 @@ Real OpenALAudioManager::getEffectiveVolume(AudioEventRTS* event) const
 		if (event->isPositionalAudio())
 		{
 			volume *= m_sound3DVolume;
+			// GeneralsX @bugfix Codex 30/10/2026 Match legacy range cutoff/fade for mono and stereo positional assets.
+			const Coord3D *position = event->getCurrentPosition();
+			if (position && evInfo) {
+				const AudioSettings *settings = getAudioSettings();
+				const Real minRange = BitIsSet(evInfo->m_type, ST_GLOBAL) ? settings->m_globalMinRange : evInfo->m_minDistance;
+				const Real maxRange = BitIsSet(evInfo->m_type, ST_GLOBAL) ? settings->m_globalMaxRange : evInfo->m_maxDistance;
+				Coord3D distance = m_listenerPosition;
+				distance.sub(position);
+				const Real range = distance.length();
+				// GeneralsX @bugfix Codex 30/10/2026 Range fade supplements source-distance attenuation; it does not replace it.
+				// Apply inverse-distance gain here so mono and stereo positional assets follow the same curve.
+				if (range > minRange && minRange > 0.0f) volume *= minRange / range;
+				if (range >= maxRange) volume = 0.0f;
+				else if (settings->m_use3DSoundRangeVolumeFade && range > minRange && maxRange > minRange) {
+					const Real fraction = (range - minRange) / (maxRange - minRange);
+					volume *= 1.0f - std::pow(fraction, settings->m_3DSoundRangeVolumeFadeExponent);
+				}
+			}
 		}
 		else
 		{
@@ -2937,7 +3009,10 @@ void OpenALAudioManager::playStream(AudioEventRTS* event, OpenALAudioStream* str
 		//alSourcei(stream->getSource(), AL_LOOPING, AL_TRUE);
 	}
 
-	stream->play();
+	// GeneralsX @bugfix Codex 30/10/2026 New streams need configured gain before the first sample, not only after a slider changes.
+	stream->setVolume(getEffectiveVolume(event));
+	if (shouldPauseEvent(event)) stream->pause();
+	else stream->play();
 	if (event->getAudioEventInfo()->m_soundType == AT_Music) {
 		// Need to stop/fade out the old music here.
 	}
@@ -2951,7 +3026,10 @@ ALuint OpenALAudioManager::playSample(AudioEventRTS* event, PlayingAudio* audio)
 	if (bufferHandle) {
 		alSourcei(audio->m_source, AL_SOURCE_RELATIVE, AL_TRUE);
 		alSourcei(audio->m_source, AL_BUFFER, (ALuint)(uintptr_t)bufferHandle);
+		// GeneralsX @bugfix Codex 30/10/2026 Apply event/category gain on every sample start, including loop portions.
+		alSourcef(audio->m_source, AL_GAIN, getEffectiveVolume(event));
 		alSourcePlay(audio->m_source);
+		if (shouldPauseEvent(event)) alSourcePause(audio->m_source);
 	}
 
 	return bufferHandle;
@@ -3002,14 +3080,17 @@ ALuint OpenALAudioManager::playSample3D(AudioEventRTS* event, PlayingAudio* samp
 					alSourcef(source, AL_MAX_DISTANCE, event->getAudioEventInfo()->m_maxDistance);
 				}
 
-				alSourcef(source, AL_ROLLOFF_FACTOR, 0.5f);
+				// GeneralsX @bugfix Codex 30/10/2026 Gain already includes legacy range fade; avoid applying a second OpenAL distance curve.
+				alSourcef(source, AL_ROLLOFF_FACTOR, 0.0f);
 				alSource3f(source, AL_POSITION, x, y, z);
 			}
 			alSourcei(source, AL_BUFFER, handle);
 			DEBUG_LOG(("Playing 3D sample '%s' at %f, %f, %f\n", event->getEventName().str(), x, y, z));
 
-			// Start playback
+			// GeneralsX @bugfix Codex 30/10/2026 Positional/stereo fallback sounds must honor the configured mix from their first sample.
+			alSourcef(source, AL_GAIN, getEffectiveVolume(event));
 			alSourcePlay(source);
+			if (shouldPauseEvent(event)) alSourcePause(source);
 		}
 		return handle;
 	}

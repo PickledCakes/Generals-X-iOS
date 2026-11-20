@@ -61,6 +61,8 @@ protected:
 
 	virtual void xferImplementation( void *data, Int dataSize ) override;		///< the xfer implementation
 
+	// GeneralsX @bugfix Codex 20/11/2026 Old iOS saves used UTF-32; retail Windows saves use UTF-16.
+	Int m_unicodeCharacterBytes = sizeof(WideChar);
 	FILE * m_fileFP;																					///< pointer to file
 
 };

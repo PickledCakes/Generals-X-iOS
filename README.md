@@ -1,174 +1,62 @@
-# Command & Conquer Generals: Zero Hour — macOS, iOS & iPadOS
+# Generals X — iOS Collection
 
-<img width="500" height="281" alt="IMG_3457_500" src="https://github.com/user-attachments/assets/aeaf6692-36e6-40c8-b9f8-8066d014ec4b" />
+![Generals X launcher, settings, icon choices and save transfer](docs/media/project-collage.png)
 
-**Zero Hour running natively on Apple Silicon Macs, iPhone, and iPad** — campaign,
-skirmish, and Generals Challenge, with touch controls built for RTS (tap-select,
-drag-box, long-press deselect, two-finger scroll, pinch zoom). No emulation: this
-is the real 2003 engine compiled for ARM64, rendering DirectX 8 →
-[DXVK](https://github.com/doitsujin/dxvk) → Vulkan →
-[MoltenVK](https://github.com/KhronosGroup/MoltenVK) → Metal.
+A native iPhone/iPad fork of [ammaarreshi/Generals-Mac-iOS-iPad](https://github.com/ammaarreshi/Generals-Mac-iOS-iPad), adding original Generals support, an optional-game launcher, isolated mod profiles, PC save transfer and audio/video/timing fixes.
 
-Built on EA's GPL v3 source release, standing on a chain of community work —
-[TheSuperHackers](https://github.com/TheSuperHackers/GeneralsGameCode),
-[Fighter19's original Unix port](https://github.com/Fighter19/CnC_Generals_Zero_Hour), and
-[fbraz3/GeneralsX](https://github.com/fbraz3/GeneralsX) — this fork adds the iOS/iPadOS
-port and a set of engine fixes. See [Lineage & credits](#lineage--credits) for who built
-what. The original GeneralsX README lives on the `upstream-main` branch.
+**Bring your own installed game folders. No retail game archives, movies, mod packages, saves, or signing credentials are distributed here.** You choose what to include: Generals, Zero Hour, ShockWave + Single Player Experience, or a documented custom Zero Hour mod profile. Building does not require AI.
 
-**No game assets are included or distributed.** You need your own copy
-([Steam](https://store.steampowered.com/app/2732960/), ~$5 on sale).
+## Build on a Mac
 
-## What this port actually involved
+One-time requirements:
 
-"Porting" undersells how weird this journey was, so here's the honest shape of it.
-The lineage below built the foundation: EA's source release, the community's
-modernization, Fighter19's original Unix port, GeneralsX's macOS/Linux work.
-What did *not* exist was any of this on iOS — and iOS is a hostile place for a
-2003 Windows RTS:
-
-- **The engine assumes a writable filesystem wherever it lives.** iOS apps live in a
-  read-only, code-signed bundle. Every config write, cache, and save path had to be
-  rerouted — and the working directory bootstrapped from the bundle itself.
-- **The renderer speaks DirectX 8. The iPad speaks Metal.** In between: DXVK
-  translating D3D8→Vulkan, MoltenVK translating Vulkan→Metal — and DXVK had never
-  been built for iPhoneOS. That took a Meson cross-build and a patch to its Vulkan
-  loader, because iOS confines `dlopen` to the app bundle ([`Patches/dxvk-ios.patch`](Patches/dxvk-ios.patch)).
-- **iOS owns your process.** Open the app switcher and the OS seizes the Metal
-  drawable *without backgrounding you* — draw one more frame and you're dead on
-  resume. The whole render/sim loop learned to hold its breath.
-- **An RTS needs a mouse.** SDL3 (from the lineage below) delivers raw touch events;
-  the RTS semantics on top are new. Taps defer until the 2003 GUI has processed
-  hover (or menu buttons never highlight), a drag has to decide "selection box or
-  camera pan," long-press became right-click, and a cancelled touch must never
-  ghost-click a rally point.
-- **And then the bug hunts** — the best part. The minimap that rendered black
-  because a 2003 texture-format fallback silently dropped the alpha channel. The
-  EVA voice that went randomly mute because one zombie audio stream held a global
-  "don't talk over speech" flag while chirping forever. Every one chased to root
-  cause on a real device, fixed, and offered upstream.
-
-**→ The war stories: [Porting Playbook §8 — the bug archaeology](docs/port/PORTING_PLAYBOOK.md#8-post-ship-bug-hunts-junejuly-2026--the-archaeology-section)**
-**→ The complete engineering log: [docs/port/PORTING_PLAYBOOK.md](docs/port/PORTING_PLAYBOOK.md)**
-**→ How to do this to another game: [docs/port/PORTING_PATTERNS.md](docs/port/PORTING_PATTERNS.md)**
-
-Worth saying plainly: this was a **human + AI collaboration**. The engineering —
-the C++, the cross-builds, the device debugging — was done by
-[Claude Code](https://claude.com/claude-code) (Anthropic's Claude, Fable model),
-directed and playtested by a human who described symptoms like *"the minimap is
-black"* and *"I hear chirping"* and owned every decision. Neither half ships this
-alone: one of us can't write C++, and the other can't hear the chirping.
-
-## Quick start — macOS
-
-Prerequisites (one time):
+- Full Xcode, opened once to finish setup, with its iOS SDK and command-line tools selected.
+- Homebrew tools: `brew install cmake ninja meson pkgconf python xcodegen autoconf automake libtool`.
+- The LunarG **macOS Vulkan SDK**, including the iOS MoltenVK libraries. The tested SDK is 1.4.363.0. Set `VULKAN_SDK` to its `macOS` directory, or let the helper find it under `~/VulkanSDK`.
+- Your own installed game files. For ShockWave + SPE, supply a complete Zero Hour installation with ShockWave 1.201 and SPE 2.1.3 applied; a Windows installer EXE alone is not an installation folder.
 
 ```sh
-# Toolchain
-xcode-select --install
-brew install cmake ninja meson pkgconf
-brew install --cask steamcmd
-
-# vcpkg (full clone — a shallow clone breaks manifest baselines)
-git clone https://github.com/microsoft/vcpkg ~/vcpkg && ~/vcpkg/bootstrap-vcpkg.sh
-export VCPKG_ROOT=~/vcpkg          # add to your shell profile
-
-# LunarG Vulkan SDK (NOT the Homebrew cask) — https://vulkan.lunarg.com/sdk/home
-export VULKAN_SDK=$HOME/VulkanSDK/<version>/macOS   # add to your shell profile
+git clone https://github.com/PickledCakes/Generals-X-iOS.git
+cd Generals-X-iOS
+./build.command
 ```
 
-Clone, build, get assets, play:
+The interactive helper asks which games to include, where their full installation folders are, and optionally your own Apple Team ID and bundle identifier. It writes an ignored `build.local.json`. It fetches the pinned vcpkg/DXVK dependencies, stages fonts and MoltenVK, prepares only the selected game profiles, derives icons locally and builds the app/IPA.
+
+Leave the Team ID blank for an **unsigned/ad-hoc IPA** that you sign using your own sideloading tool. For Xcode signing, first sign into your Apple Account in Xcode Settings → Accounts and enter your Team ID and a unique bundle identifier when prompted.
 
 ```sh
-git clone https://github.com/ammaarreshi/Generals-Mac-iOS-iPad.git GeneralsX
-cd GeneralsX
-./scripts/build/macos/build-macos-zh.sh     # checks deps, configures, builds
-./scripts/build/macos/deploy-macos-zh.sh    # creates ~/GeneralsX/GeneralsZH + run.sh
-./scripts/get-assets.sh <your_steam_username>   # fetches game data you own
-cd ~/GeneralsX/GeneralsZH && ./run.sh -win
+./build.command --install    # signed build; discovers your connected device
 ```
 
-## Quick start — iPhone / iPad
+Outputs: `build/ios-package-collection/GeneralsCollection.app` and `GeneralsX.ipa`. The Home Screen name is **Generals X**; the launcher title is **Generals Collection**.
 
-On top of the macOS prerequisites: full Xcode (signed into your Apple ID),
-`brew install xcodegen`, and a (free or paid) Apple Developer team.
+See the [full build guide](docs/HOWTO/IOS-COLLECTION-BUILD.md) for noninteractive configuration, signing, supported folder layouts, troubleshooting and test limits.
 
-```sh
-cd GeneralsX
-git submodule update --init references/fbraz3-dxvk   # iOS DXVK is built from this + Patches/dxvk-ios.patch
-./scripts/build/ios/fetch-moltenvk.sh                # pinned MoltenVK.framework (checksummed)
-./scripts/build/ios/stage-fonts.sh                   # Liberation fonts, renamed as the game expects
-cmake --preset ios-vulkan
-cmake --build build/ios-vulkan --target z_generals
-GX_TEAM_ID=<your-team-id> GX_BUNDLE_ID=com.you.generalszh \
-    ./scripts/build/ios/package-ios-zh.sh --install  # assembles, signs, installs
-```
+## File checks are advisory
 
-Find your team id in Xcode → Settings → Accounts. Assets ship inside the app
-bundle (self-contained install); `--dev` skips the ~2.7 GB copy for fast code
-iteration.
+Before compiling, the helper compares known, stable content assets with SHA-256 reference manifests. It lists every missing or mismatched reference file **as a warning and continues**. A different language, retailer, patch or mod can legitimately differ from the reference.
 
-## Where things are
+Account/DRM files, executables, DLLs, Steam manifests, `game.dat`, `gensec*.big`, launcher settings, saves and caches are **not checksummed**. Files absent from the reference list are unverified. A checksum warning does not by itself fail a build; a missing installation folder, missing build dependency or unusable required mod archive can still prevent staging/compilation.
 
-| Path | What it is |
-|---|---|
-| [`docs/port/PORTING_PLAYBOOK.md`](docs/port/PORTING_PLAYBOOK.md) | The complete engineering log of this port: every failure mode, root cause, fix — start with [§8, the bug archaeology](docs/port/PORTING_PLAYBOOK.md#8-post-ship-bug-hunts-junejuly-2026--the-archaeology-section): the black minimap, the silent EVA lines, and the chirp |
-| `docs/port/PORTING_PATTERNS.md` | Generalized methodology for porting classic Windows games to Apple platforms |
-| `docs/port/RELEASE_CHECKLIST.md` | Gate for public release |
-| `scripts/get-assets.sh` | Steam asset fetcher (your own copy; app 2732960) |
-| `scripts/build/macos/`, `scripts/build/ios/` | Build, deploy, packaging pipelines |
-| `ios/` | XcodeGen signing-stub project + `ios/config/` (staged Options.ini, dxvk.conf) |
-| `Patches/dxvk-ios.patch` | DXVK changes the iOS d3d8/d3d9 dylibs are built from (applied via the local-fork build) |
+## Features
 
-## Known issues
+- Selectable game profiles: bundle only what you choose. ShockWave is optional.
+- Separate assets, saves, settings, registry data and logs for each profile.
+- Static main-menu and disable-movies switches; in-engine cinematics remain enabled.
+- Saved-game import/export through Files and the share sheet, with non-overwriting imports.
+- Five Home Screen icon choices, derived from supplied artwork where available; neutral generated tiles otherwise.
+- One game per app session. Exit Game closes the app; reopen it to choose another.
+- Diagnostics and per-profile settings reset.
 
-- Long sessions on iPad can be killed by iOS for memory (~3 GB+ resident); the app
-  exits to the home screen with no dialog. Session logs (current + previous) are in
-  the Files app under the game's folder. Under investigation.
-- Backgrounding mid-game can occasionally crash on iOS — the lifecycle pause covers
-  the common paths; a rare race remains. Save often.
+For another BIG-based Zero Hour mod, see [adding a content profile](docs/HOWTO/IOS-MOD-PROFILES.md). New profiles do not require changing the launcher UI, save-transfer code or engine-selection switch.
 
-## What's next: Renegade 👀
+## Status and credits
 
-Generals had a chain of giants to stand on. **Command & Conquer: Renegade** — EA's
-2002 FPS from the same GPL source release — has far less: no native macOS or iOS
-build of the W3D engine has ever shipped (Mac players today go through Wine-based
-compatibility layers). The [OpenW3D](https://github.com/w3dhub/OpenW3D) community
-project has real cross-platform groundwork — a DXVK wrapper scaffold and SDL3 build
-plumbing — with Mac/Linux on its roadmap, and that groundwork is exactly what we
-built on.
+This is an experimental device-tested port, not an official EA release or a promise that every mission/mod/device works. The current development version was exercised on an iPad mini (A17 Pro), including original Generals/Zero Hour campaigns, PC snapshot loads, and initial ShockWave + SPE campaign tests. A complete clean-machine engine build of this release workflow is still a separate validation target; the original engine build and the new staging/launcher packaging are tested independently. See [validation details](docs/HOWTO/IOS-COLLECTION-BUILD.md#validation).
 
-Same methodology as this repo, much deeper water: OpenW3D's Win32 compat scaffold
-expanded by ~3,000 lines (the engine calls raw Windows APIs for file finding,
-keyboard state, COM), a case-sensitivity strategy for twenty thousand asset paths,
-the DXVK/MoltenVK renderer bring-up, the audio/video stack, and FPS touch controls.
-It's playable today — campaign, cinematics, mission scripts — on a Mac and an
-iPhone. For scale: this Generals port added ~2,200 lines on top of GeneralsX;
-Renegade needed ~6,700 on top of the Windows-only source.
+The port rests on **EA's source release**, **TheSuperHackers' engine work**, **Fighter19's Unix port**, **fbraz3/GeneralsX**, and **Ammar Reshi's original iOS/iPadOS port**. This fork adds the collection launcher and compatibility fixes developed and playtested by PickledCakes with Codex. The [original README](docs/port/UPSTREAM_README.md) and [porting history](docs/port/PORTING_PLAYBOOK.md) preserve upstream attribution.
 
-Repo drops soon, with the OpenW3D lineage credited the way this repo credits its
-chain. Same rules: GPL v3, bring your own copy, full engineering log.
+ShockWave is by SWR Productions; Single Player Experience is by WARthog. Their content is supplied by the user and retains its own authorship/terms. Screenshot artwork illustrates a local installation and is not licensed as engine source.
 
-## Lineage & credits
-
-This port is the newest link in a long chain, and the earlier links did foundational
-work that this repo inherits everywhere:
-
-- **Westwood / EA Pacific** — the game; **EA** — the GPL v3 source release
-- **[TheSuperHackers/GeneralsGameCode](https://github.com/TheSuperHackers/GeneralsGameCode)** —
-  the community mainline: build modernization, VC6→modern toolchain, and much of the
-  cross-platform groundwork, including the FFmpeg video backend authored by
-  **[feliwir](https://github.com/feliwir)** (of [OpenSAGE](https://github.com/OpenSAGE/OpenSAGE)),
-  who also authored the OpenAL audio device work this port's audio stack builds on
-- **[Fighter19/CnC_Generals_Zero_Hour](https://github.com/Fighter19/CnC_Generals_Zero_Hour)** —
-  the original Unix/64-bit port: SDL3 platform management, C++17
-  filesystem/threading, Freetype/Fontconfig text rendering, and the DXVK approach
-  this renderer path descends from
-- **[fbraz3/GeneralsX](https://github.com/fbraz3/GeneralsX)** — the macOS/Linux port
-  this fork builds on directly, integrating and extending the above
-- **This fork** — the iOS/iPadOS port (arm64-ios cross-build, DXVK-on-iOS, touch
-  controls, app lifecycle, packaging) and engine fixes, offered upstream
-- **DXVK, MoltenVK, SDL, OpenAL Soft, FFmpeg, Liberation Fonts** — the load-bearing walls
-
-Engine code **GPL v3** (EA's source release → the chain above → this fork). Game
-assets: not included, not licensed here.
+Engine source uses [GPLv3 with EA's additional terms](LICENSE.md). Those terms include trademark restrictions; no EA affiliation or trademark rights are claimed. Third-party libraries and fonts retain their own licenses. See [third-party notices](docs/HOWTO/IOS-THIRD-PARTY.md).

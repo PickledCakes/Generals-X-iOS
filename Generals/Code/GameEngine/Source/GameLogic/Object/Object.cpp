@@ -3607,7 +3607,8 @@ void Object::xfer( Xfer *xfer )
 
 	// version
 	const XferVersion currentVersion = 8;
-	XferVersion version = currentVersion;
+	// GeneralsX @bugfix Codex 20/11/2026 Write retail v7 while continuing to accept existing port v8 objects.
+    XferVersion version = (RETAIL_COMPATIBLE_XFER_SAVE && xfer->getXferMode()==XFER_SAVE) ? 7 : currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
 	// object ID
@@ -3672,21 +3673,17 @@ void Object::xfer( Xfer *xfer )
 	else
 	{
 		//We are loading an old version, so we must convert it from a 32-bit int to a bitflag
-		UnsignedInt oldStatus;
-		xfer->xferUnsignedInt( &oldStatus );
-
-		//Clear our status
-		m_status.clear();
-
-		for( int i = 0; i < 32; i++ )
-		{
-			UnsignedInt bit = 1<<i;
-			if( oldStatus & bit )
-			{
-				ObjectStatusTypes status = (ObjectStatusTypes)(i+1);
-				m_status.set( MAKE_OBJECT_STATUS_MASK( status ) );
-			}
-		}
+        UnsignedInt oldStatus=0;
+        if (xfer->getXferMode()==XFER_SAVE) {
+            for (int i=0;i<32;++i)
+                if (m_status.test((ObjectStatusTypes)(i+1))) oldStatus|=UnsignedInt(1)<<i;
+        }
+        xfer->xferUnsignedInt(&oldStatus);
+        if (xfer->getXferMode()==XFER_LOAD) {
+            m_status.clear();
+            for (int i=0;i<32;++i)
+                if (oldStatus & (UnsignedInt(1)<<i)) m_status.set(MAKE_OBJECT_STATUS_MASK((ObjectStatusTypes)(i+1)));
+        }
 	}
 
 	// script status
@@ -3735,7 +3732,14 @@ void Object::xfer( Xfer *xfer )
 	}
 
 	// disabled till frame
-	xfer->xferUser( m_disabledTillFrame, sizeof( UnsignedInt ) * DISABLED_COUNT );
+    // GeneralsX @bugfix Codex 20/11/2026 Retail Generals has ten timers; expansion-only entries were inserted before script timers.
+    if (version <= 7) {
+        xfer->xferUser(m_disabledTillFrame,sizeof(UnsignedInt)*8);
+        xfer->xferUnsignedInt(&m_disabledTillFrame[DISABLED_SCRIPT_DISABLED]);
+        xfer->xferUnsignedInt(&m_disabledTillFrame[DISABLED_SCRIPT_UNDERPOWERED]);
+    } else {
+        xfer->xferUser(m_disabledTillFrame,sizeof(UnsignedInt)*DISABLED_COUNT);
+    }
 
 	// OK, now that we have xferred our status bits and disabled data, it's safe to set the team...
 	// TheSuperHackers @todo Refactor so that this code can be moved to loadPostProcess.

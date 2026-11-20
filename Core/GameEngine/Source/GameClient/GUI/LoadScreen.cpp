@@ -467,6 +467,11 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 	m_ambientLoop.setEventName("LoadScreenAmbient");
 	// create the new stream
 	m_videoStream = TheVideoPlayer->open( TheCampaignManager->getCurrentMission()->m_movieLabel );
+	// GeneralsX @bugfix Codex 30/10/2026 One diagnostic per briefing distinguishes lookup/decode failures from the playback gate.
+	fprintf(stderr, "[BRIEFING] title=%s opened=%d frames=%d memoryPass=%d\n",
+		TheCampaignManager->getCurrentMission()->m_movieLabel.str(), m_videoStream != nullptr,
+		m_videoStream ? m_videoStream->frameCount() : 0,
+		TheGameLODManager && TheGameLODManager->didMemPass());
 	if ( m_videoStream == nullptr )
 	{
 		m_percent->winHide(TRUE);
@@ -475,10 +480,13 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 
 	// Create the new buffer
 	m_videoBuffer = TheDisplay->createVideoBuffer();
-	if (	m_videoBuffer == nullptr ||
-				!m_videoBuffer->allocate(	m_videoStream->width(),
-													m_videoStream->height())
-		)
+	// GeneralsX @bugfix Codex 30/10/2026 Record the allocation gate separately from successful movie opening.
+	const Bool videoBufferAllocated = m_videoBuffer &&
+		m_videoBuffer->allocate(m_videoStream->width(), m_videoStream->height());
+	fprintf(stderr, "[BRIEFING] buffer=%d format=%d size=%dx%d initialFrame=%d\n",
+		(int)videoBufferAllocated, m_videoBuffer ? (int)m_videoBuffer->format() : -1,
+		m_videoStream->width(), m_videoStream->height(), m_videoStream->frameIndex());
+	if (!videoBufferAllocated)
 	{
 		delete m_videoBuffer;
 		m_videoBuffer = nullptr;
@@ -568,6 +576,10 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 			// Issue: https://github.com/fbraz3/GeneralsX/issues/38
 			if (TheVideoPlayer)
 				TheVideoPlayer->update();
+#if RTS_GENERALS
+			// GeneralsX @bugfix Codex 31/10/2026 EVA speech is a separate stream; GameEngine::update is blocked during the movie.
+			TheAudio->update();
+#endif
 
 			if(m_videoBuffer)
 				m_loadScreen->winGetInstanceData()->setVideoBuffer(m_videoBuffer);

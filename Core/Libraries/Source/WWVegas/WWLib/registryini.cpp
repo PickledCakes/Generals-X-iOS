@@ -55,6 +55,13 @@ namespace {
 
 	std::string GetRegistryIniDirectory()
 	{
+#ifndef _WIN32
+        // GeneralsX @feature Codex 19/11/2026 The collection isolates registry settings per engine.
+        const char *collectionDirectory = getenv("GX_REGISTRY_DIRECTORY");
+        if (collectionDirectory != nullptr && collectionDirectory[0] != '\0') {
+            return std::string(collectionDirectory);
+        }
+#endif
 	#ifdef _WIN32
 		const char *appData = getenv("APPDATA");
 		if (appData != nullptr && appData[0] != '\0') {

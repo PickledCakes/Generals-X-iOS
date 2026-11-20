@@ -170,6 +170,9 @@ class GameTextManager : public GameTextInterface
 		StringInfo			*m_fallbackStringInfo;
 		StringLookUp		*m_fallbackStringLUT;
 		Int						m_fallbackTextCount;
+		StringInfo *m_patchStringInfo;
+		StringLookUp *m_patchStringLUT;
+		Int m_patchTextCount;
 		Bool						m_initialized;
 #if defined(RTS_DEBUG)
 		Bool						m_jabberWockie;
@@ -196,7 +199,7 @@ class GameTextManager : public GameTextInterface
 		Bool						getStringCount( const Char *filename, Int& textCount );
 		Bool						getCSFInfo ( const Char *filename, Int& textCount, LanguageID& language, FileInstance instance = 0 );
 		Bool						parseCSF(  const Char *filename, StringInfo *stringInfo, Int textCount, Int& maxLabelLen, FileInstance instance = 0 );
-		Bool						parseStringFile( const char *filename );
+		Bool						parseStringFile( const char *filename, StringInfo *stringInfo = nullptr );
 		Bool						parseMapStringFile( const char *filename );
 		Bool						readLine( char *buffer, Int max, File *file );
 		Char						readChar( File *file );
@@ -253,6 +256,9 @@ GameTextManager::GameTextManager()
 	m_fallbackStringInfo(nullptr),
 	m_fallbackStringLUT(nullptr),
 	m_fallbackTextCount(0),
+	m_patchStringInfo(nullptr),
+	m_patchStringLUT(nullptr),
+	m_patchTextCount(0),
 	m_initialized(FALSE),
 	m_noStringList(nullptr),
 #if defined(RTS_DEBUG)
@@ -433,6 +439,24 @@ void GameTextManager::init()
 		m_language = originalLanguage;
 	}
 
+	// GeneralsX @bugfix Codex 30/10/2026 PatchData supplies supplemental labels outside Generals.csf.
+	// Existing localized/mod/map labels keep priority; these fill only missing keys.
+	if (getStringCount("Data\\Patch.str", m_patchTextCount) && m_patchTextCount > 0) {
+		m_patchStringInfo = NEW StringInfo[m_patchTextCount];
+		if (parseStringFile("Data\\Patch.str", m_patchStringInfo)) {
+			m_patchStringLUT = NEW StringLookUp[m_patchTextCount];
+			for (Int i = 0; i < m_patchTextCount; ++i) {
+				m_patchStringLUT[i].info = &m_patchStringInfo[i];
+				m_patchStringLUT[i].label = &m_patchStringInfo[i].label;
+			}
+			qsort(m_patchStringLUT, m_patchTextCount, sizeof(StringLookUp), compareLUT);
+		} else {
+			delete [] m_patchStringInfo;
+			m_patchStringInfo = nullptr;
+			m_patchTextCount = 0;
+		}
+	}
+
 }
 
 //============================================================================
@@ -453,6 +477,11 @@ void GameTextManager::deinit()
 
 	delete [] m_fallbackStringLUT;
 	m_fallbackStringLUT = nullptr;
+	delete [] m_patchStringInfo;
+	m_patchStringInfo = nullptr;
+	delete [] m_patchStringLUT;
+	m_patchStringLUT = nullptr;
+	m_patchTextCount = 0;
 
 	m_textCount = 0;
 	m_fallbackTextCount = 0;
@@ -1129,8 +1158,9 @@ quit:
 // GameTextManager::parseStringFile
 //============================================================================
 
-Bool GameTextManager::parseStringFile( const char *filename )
+Bool GameTextManager::parseStringFile( const char *filename, StringInfo *stringInfo )
 {
+	if (!stringInfo) stringInfo = m_stringInfo;
 	Int listCount = 0;
 	Int ok = TRUE;
 
@@ -1158,13 +1188,13 @@ Bool GameTextManager::parseStringFile( const char *filename )
 
 		for ( Int i = 0; i < listCount; i++ )
 		{
-			if ( stricmp ( m_stringInfo[i].label.str(), m_buffer ) == 0)
+			if ( stricmp ( stringInfo[i].label.str(), m_buffer ) == 0)
 			{
 				DEBUG_CRASH ( ("String label '%s' multiply defined!", m_buffer ));
 			}
 		}
 
-		m_stringInfo[listCount].label = m_buffer;
+		stringInfo[listCount].label = m_buffer;
 		len = strlen ( m_buffer );
 
 
@@ -1196,7 +1226,7 @@ Bool GameTextManager::parseStringFile( const char *filename )
 				if ( readString )
 				{
 					// only one string per label allows
-						DEBUG_CRASH ( ("String label '%s' has more than one string defined!", m_stringInfo[listCount].label.str()));
+						DEBUG_CRASH ( ("String label '%s' has more than one string defined!", stringInfo[listCount].label.str()));
 				}
 				else
 				{
@@ -1204,8 +1234,8 @@ Bool GameTextManager::parseStringFile( const char *filename )
 					translateCopy( m_tbuffer, m_buffer2 );
 					stripSpaces ( m_tbuffer );
 
-					m_stringInfo[listCount].text = m_tbuffer ;
-					m_stringInfo[listCount].speech = m_buffer3;
+					stringInfo[listCount].text = m_tbuffer ;
+					stringInfo[listCount].speech = m_buffer3;
 					readString = TRUE;
 				}
 			}
@@ -1394,6 +1424,10 @@ UnicodeString GameTextManager::fetch( const Char *label, Bool *exists )
 	if ( lookUp == nullptr && m_fallbackStringLUT && m_fallbackTextCount )
 	{
 		lookUp = (StringLookUp *) bsearch( &key, (void*) m_fallbackStringLUT, m_fallbackTextCount, sizeof(StringLookUp), compareLUT );
+	}
+
+	if (lookUp == nullptr && m_patchStringLUT && m_patchTextCount) {
+		lookUp = (StringLookUp *) bsearch(&key, m_patchStringLUT, m_patchTextCount, sizeof(StringLookUp), compareLUT);
 	}
 
 	if( lookUp == nullptr )

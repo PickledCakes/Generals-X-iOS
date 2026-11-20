@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {"id":"Generals","title":"GENERALS","subtitle":"Original campaign","engine":"GeneralsEngine","recipe":"retail","checksum":"generals-steam-en.json","icon":"GeneralsIcon","sourceKey":"generals"},
+    {"id":"GeneralsZH","title":"ZERO HOUR","subtitle":"Campaigns & Generals Challenge","engine":"ZeroHourEngine","recipe":"retail","checksum":"zero-hour-steam-en.json","icon":"ZeroHourIcon","sourceKey":"zeroHour"},
+    {"id":"ShockWaveSPE","title":"SHOCKWAVE","subtitle":"Single Player Experience","engine":"ZeroHourEngine","recipe":"shockwave-spe","checksum":"shockwave-spe-2.1.3.json","icon":"ShockWaveIcon","sourceKey":"shockWaveSPE","activationMap":"Shockwave_Lnchr.dat","disableScripts":["Data/Scripts/MultiplayerScripts.scb","Data/Scripts/SkirmishScripts.scb","Data/Scripts/Scripts.ini"]}
+  ]
+}

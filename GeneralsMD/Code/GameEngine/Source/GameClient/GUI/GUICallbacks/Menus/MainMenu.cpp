@@ -28,6 +28,9 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include <cstdio>
+#include <cstdlib>
+#include <string>
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 
 #include "gamespy/ghttp/ghttp.h"
@@ -47,6 +50,7 @@
 #include "GameClient/Display.h"
 #include "GameClient/WindowLayout.h"
 #include "GameClient/Gadget.h"
+#include "GameClient/GadgetPushButton.h"
 #include "GameClient/GameText.h"
 #include "GameClient/HeaderTemplate.h"
 #include "GameClient/MapUtil.h"
@@ -137,6 +141,7 @@ static NameKeyType buttonSingleBackID = NAMEKEY_INVALID;
 static NameKeyType buttonLoadReplayBackID = NAMEKEY_INVALID;
 static NameKeyType buttonReplayID = NAMEKEY_INVALID;
 static NameKeyType buttonLoadReplayID = NAMEKEY_INVALID;
+static NameKeyType buttonCustomMissionID = NAMEKEY_INVALID;
 static NameKeyType buttonLoadID = NAMEKEY_INVALID;
 static NameKeyType buttonCreditsID = NAMEKEY_INVALID;
 static NameKeyType buttonEasyID = NAMEKEY_INVALID;
@@ -482,7 +487,11 @@ void MainMenuInit( WindowLayout *layout, void *userData )
 {
 	TheWritableGlobalData->m_breakTheMovie = FALSE;
 
-	TheShell->showShellMap(TRUE);
+	// GeneralsX @bugfix Codex 30/10/2026 MainMenu is constructed before startup videos, but its live map must start afterward.
+	// GameClient's post-intro path owns the first map-start request; normal menu returns still start it here.
+	if (!TheGlobalData->m_playIntro && !TheGlobalData->m_afterIntro) {
+		TheShell->showShellMap(TRUE);
+	}
 	TheMouse->setVisibility(TRUE);
 	//winVidManager = NEW WindowVideoManager;
 	buttonPushed = FALSE;
@@ -573,6 +582,9 @@ void MainMenuInit( WindowLayout *layout, void *userData )
 	dropDownWindows[DROPDOWN_DIFFICULTY] = TheWindowManager->winGetWindowFromId( parentMainMenu, TheNameKeyGenerator->nameToKey( "MainMenu.wnd:MapBorder4" ) );
 	for(i = 1; i < DROPDOWN_COUNT; ++i)
 		dropDownWindows[i]->winHide(TRUE);
+
+	// GeneralsX @bugfix Codex 30/10/2026 The patched window's label is resolved by the shared Patch.str fallback.
+	buttonCustomMissionID = TheNameKeyGenerator->nameToKey("MainMenu.wnd:ButtonCustomMission");
 
 	initialHide();
 
@@ -934,6 +946,18 @@ void MainMenuUpdate( WindowLayout *layout, void *userData )
 			initialGadgetDelay--;
 	}
 
+	#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	static int iosLogFrames = 0;
+	if ((++iosLogFrames % 60) == 0) {
+		FILE *log = fopen((std::string(getenv("HOME")) + "/Documents/generals-menu.log").c_str(), "a");
+		if (log) {
+			fprintf(log, "MainMenuUpdate: locked=%d finished=%d\\n",
+				(int)dontAllowTransitions,
+				(int)TheTransitionHandler->isFinished());
+			fclose(log);
+		}
+	}
+#endif
 	if(dontAllowTransitions && TheTransitionHandler->isFinished())
 		dontAllowTransitions = FALSE;
 
@@ -1368,6 +1392,29 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 			GameWindow *control = (GameWindow *)mData1;
 			Int controlID = control->winGetWindowId();
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+        {
+            const char *home = getenv("HOME");
+            if (home)
+            {
+                std::string path = std::string(home) + "/Documents/generals-menu-events.log";
+                FILE *log = fopen(path.c_str(), "a");
+                if (log)
+                {
+                    fprintf(log,
+                        "SOLO_DIAG: controlID=%d singleID=%d pushed=%d locked=%d finished=%d\n",
+                        (int)controlID,
+                        (int)buttonSinglePlayerID,
+                        (int)buttonPushed,
+                        (int)dontAllowTransitions,
+                        (int)TheTransitionHandler->isFinished());
+                    fclose(log);
+                }
+            }
+        }
+#endif
+
+
 			if(buttonPushed)
 				break;
 #if defined(RTS_DEBUG) || defined RTS_PROFILE_LEGACY
@@ -1502,6 +1549,14 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 				dropDownWindows[DROPDOWN_LOADREPLAY]->winHide(FALSE);
 				TheTransitionHandler->reverse("MainMenuLoadReplayMenuBackTransition");
 				TheShell->push("Menus/ReplayMenu.wnd");
+			}
+			// GeneralsX @bugfix Codex 30/10/2026 Route patched Custom Mission buttons to the existing solo-map browser.
+			else if (controlID == buttonCustomMissionID)
+			{
+				if (campaignSelected || dontAllowTransitions) break;
+				buttonPushed = TRUE;
+				TheTransitionHandler->reverse("MainMenuSinglePlayerMenuBackCustomMission");
+				TheShell->push("Menus/MapSelectMenu.wnd");
 			}
 			else if( controlID == skirmishID )
 			{

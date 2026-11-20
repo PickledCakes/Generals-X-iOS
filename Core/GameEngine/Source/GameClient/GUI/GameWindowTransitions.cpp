@@ -46,6 +46,9 @@
 //-----------------------------------------------------------------------------
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
+#include <cstdio>
+#include <cstdlib>
+#include <string>
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 
 //-----------------------------------------------------------------------------
@@ -166,6 +169,24 @@ Bool TransitionWindow::init()
 {
 	m_winID = TheNameKeyGenerator->nameToKey(m_winName);
 	m_win		= TheWindowManager->winGetWindowFromId(nullptr, m_winID);
+
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+    if (true)
+    {
+        const char *home = getenv("HOME");
+        if (home)
+        {
+            std::string path = std::string(home) + "/Documents/generals-transitions.log";
+            FILE *log = fopen(path.c_str(), "a");
+            if (log)
+            {
+                fprintf(log, "TRANSITION WINDOW: name=[%s] found=%d style=%d\n", m_winName.str(), m_win != nullptr, m_style);
+                fclose(log);
+            }
+        }
+    }
+#endif
+
 	m_currentFrameDelay = m_frameDelay;
 //	DEBUG_ASSERTCRASH( m_win, ("TransitionWindow::init Failed to find window %s", m_winName.str()));
 //	if( !m_win )
@@ -451,6 +472,29 @@ void GameWindowTransitionsHandler::draw()
 
 void GameWindowTransitionsHandler::setGroup(AsciiString groupName, Bool immediate )
 {
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+    if (groupName.compareNoCase("MainMenuSinglePlayerMenu") == 0)
+    {
+        const char *home = getenv("HOME");
+        if (home)
+        {
+            std::string path = std::string(home) + "/Documents/generals-transitions.log";
+            FILE *log = fopen(path.c_str(), "a");
+            if (log)
+            {
+                fprintf(log,
+                    "SETGROUP: requested=[%s] found=%d current=%s pending=%s immediate=%d\n",
+                    groupName.str(),
+                    findGroup(groupName) != nullptr,
+                    m_currentGroup ? m_currentGroup->getName().str() : "(none)",
+                    m_pendingGroup ? m_pendingGroup->getName().str() : "(none)",
+                    immediate);
+                fclose(log);
+            }
+        }
+    }
+#endif
+
 	if(groupName.isEmpty() && immediate)
 		m_currentGroup = nullptr;
 	if(immediate && m_currentGroup)
